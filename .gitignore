@@ -2,3 +2,6 @@
 __pycache__/
 *.pyc
 captures/
+task_plan.md
+findings.md
+progress.md

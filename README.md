@@ -88,6 +88,23 @@ mitmweb -r captures/latest.flow
 默认会生成：`captures/latest.ai.bundle.txt`。
 把这个文件整体贴给 AI，通常最省心、最稳定。
 
+## 验证与 CI
+
+本仓库当前通过两类验证：
+
+- 本地静态回归：`python3 -m unittest tests.test_windows_bat_static`
+- GitHub Actions：
+  - `ubuntu-latest` 上做 `bash -n` 与 Python 语法校验
+  - `windows-latest` 上跑 `tests/test_windows_bat_static.py`
+
+最小本地验证命令：
+
+```bash
+python3 -m unittest tests.test_windows_bat_static
+bash -n startCaptures.sh stopCaptures.sh analyzeLatest.sh ai.sh
+python3 -m py_compile .har_addon.py flow2har.py flow_report.py ai_brief.py
+```
+
 ## startCaptures.sh
 
 ### 用法

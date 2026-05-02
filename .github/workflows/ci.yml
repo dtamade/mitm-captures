@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  linux-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate shell syntax
+        run: |
+          bash -n startCaptures.sh
+          bash -n stopCaptures.sh
+          bash -n analyzeLatest.sh
+          bash -n ai.sh
+
+      - name: Validate Python syntax
+        run: |
+          python -m py_compile .har_addon.py
+          python -m py_compile flow2har.py
+          python -m py_compile flow_report.py
+          python -m py_compile ai_brief.py
+
+      - name: Run static test suite
+        run: python -m unittest tests.test_windows_bat_static
+
+  windows-batch-static:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run Windows batch static suite
+        shell: pwsh
+        run: python -m unittest tests.test_windows_bat_static
