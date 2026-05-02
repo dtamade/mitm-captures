@@ -168,7 +168,7 @@ class WindowsBatchEntrypointTest(unittest.TestCase):
         for token in [
             'if not exist "%capture_lock_owner_file%" (',
             'if "%force_recover%"=="1" (',
-            'timeout /t 1 /nobreak >nul',
+            'call :sleep_one_second',
             'call :resolve_current_cmd_pid current_cmd_pid',
             'if defined capture_lock_owner_pid if defined current_cmd_pid if /i "%capture_lock_owner_pid%"=="%current_cmd_pid%" (',
             'call :pid_running "%capture_lock_owner_pid%"',
@@ -397,12 +397,12 @@ class WindowsBatchEntrypointTest(unittest.TestCase):
             start_section.index('call :wait_for_startup_stability'),
             start_section.index('call :write_state || call :rollback_failed_start "state-write-failed"'),
         )
-        self.assertNotIn('timeout /t 1 /nobreak >nul\ncall :pid_running "%mitm_pid%"', start_section)
+        self.assertNotIn('call :sleep_one_second\ncall :pid_running "%mitm_pid%"', start_section)
 
         for token in [
             'set "startup_wait_seconds=6"',
             'call :pid_running "%mitm_pid%"',
-            'timeout /t 1 /nobreak >nul',
+            'call :sleep_one_second',
             'set /a startup_wait_seconds-=1',
             'if "%startup_wait_seconds%"=="0" exit /b 0',
         ]:
@@ -415,13 +415,13 @@ class WindowsBatchEntrypointTest(unittest.TestCase):
         self.assertIn('set "mitm_pid="', start_section)
         self.assertLess(
             start_section.index('set "mitm_pid="'),
-            start_section.index('start "" /b "%mitmdump_cmd%"'),
+            start_section.index('start "" /b "%comspec%"'),
         )
         self.assertLess(
             start_section.index('set "mitm_pid="'),
             start_section.index('if not defined mitm_pid ('),
         )
-        self.assertIn('start "" /b "%mitmdump_cmd%" -q --listen-host "%listen_host%"', start_section)
+        self.assertIn('start "" /b "%comspec%" /d /s /c ""%mitmdump_cmd%" -q --listen-host "%listen_host%"', start_section)
         self.assertIn('> "%log_file%" 2> "%log_err_file%"', start_section)
         self.assertIn('call :wait_for_spawned_capture_pid "%flow_file%" mitm_pid', start_section)
         self.assertNotIn("start-process -filepath $env:mitmdump_cmd", start_section)
@@ -436,7 +436,7 @@ class WindowsBatchEntrypointTest(unittest.TestCase):
             'call :find_capture_pid_by_flow "%wait_pid_flow_file%" wait_pid_value',
             'if defined wait_pid_value (',
             'set "%wait_pid_var%=%wait_pid_value%"',
-            'timeout /t 1 /nobreak >nul',
+            'call :sleep_one_second',
         ]:
             self.assertIn(token, wait_section)
 

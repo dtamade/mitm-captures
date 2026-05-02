@@ -230,7 +230,7 @@ if not "%PROGRAM_MODE%"=="1" (
     )
 )
 
-start "" /b "%MITMDUMP_CMD%" -q --listen-host "%LISTEN_HOST%" --listen-port "%LISTEN_PORT%" --set block_global=false --set flow_detail=0 -w "%FLOW_FILE%" > "%LOG_FILE%" 2> "%LOG_ERR_FILE%"
+start "" /b "%ComSpec%" /d /s /c ""%MITMDUMP_CMD%" -q --listen-host "%LISTEN_HOST%" --listen-port "%LISTEN_PORT%" --set block_global=false --set flow_detail=0 -w "%FLOW_FILE%" > "%LOG_FILE%" 2> "%LOG_ERR_FILE%""
 call :wait_for_spawned_capture_pid "%FLOW_FILE%" MITM_PID
 
 if not defined MITM_PID (
@@ -569,7 +569,7 @@ if not exist "%CAPTURE_LOCK_OWNER_FILE%" (
 )
 call :read_capture_lock_owner_pid
 if errorlevel 1 (
-    timeout /t 1 /nobreak >nul
+            call :sleep_one_second
     call :read_capture_lock_owner_pid
 )
 call :resolve_current_cmd_pid CURRENT_CMD_PID
@@ -609,7 +609,7 @@ exit /b 0
 
 :resolve_current_cmd_pid
 set "CURRENT_CMD_PID="
-for /f %%I in ('powershell -NoProfile -Command "$owner = (Get-CimInstance Win32_Process -Filter ('ProcessId=' + $PID)).ParentProcessId; if ($owner) { $owner }" 2^>nul') do set "CURRENT_CMD_PID=%%I"
+for /f %%I in ('powershell -NoProfile -Command "$owner = (Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -eq $PID }).ParentProcessId; if ($owner) { $owner }" 2^>nul') do set "CURRENT_CMD_PID=%%I"
 if not defined CURRENT_CMD_PID exit /b 1
 set "%~1=%CURRENT_CMD_PID%"
 exit /b 0
@@ -852,7 +852,7 @@ set "STARTUP_WAIT_SECONDS=6"
 call :pid_running "%MITM_PID%"
 if errorlevel 1 exit /b 1
 if "%STARTUP_WAIT_SECONDS%"=="0" exit /b 0
-timeout /t 1 /nobreak >nul
+call :sleep_one_second
 set /a STARTUP_WAIT_SECONDS-=1
 goto :wait_for_startup_stability_loop
 
@@ -867,7 +867,7 @@ if defined WAIT_PID_VALUE (
     exit /b 0
 )
 if "%WAIT_PID_SECONDS%"=="0" exit /b 1
-timeout /t 1 /nobreak >nul
+call :sleep_one_second
 set /a WAIT_PID_SECONDS-=1
 goto :wait_for_spawned_capture_pid_loop
 
@@ -1162,6 +1162,10 @@ exit /b 0
 rundll32.exe user32.dll,UpdatePerUserSystemParameters >nul 2>&1
 exit /b 0
 
+:sleep_one_second
+ping -n 2 127.0.0.1 >nul
+exit /b 0
+
 :pid_running
 echo(%~1| findstr /R "^[0-9][0-9]*$" >nul
 if errorlevel 1 exit /b 1
@@ -1176,7 +1180,7 @@ call :pid_running "%PROCESS_MATCH_PID%"
 if errorlevel 1 exit /b 1
 set "PROCESS_MATCH_OUT=%TEMP%\mitm-captures-pid-match-%RANDOM%%RANDOM%.txt"
 set "PROCESS_MATCH_RESULT="
-powershell -NoProfile -Command "$p = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $env:PROCESS_MATCH_PID) -ErrorAction Stop; $cmd = $p.CommandLine; $nameok = $p.Name -and $p.Name -ieq 'mitmdump.exe'; $writeflagpos = $cmd.IndexOf(' -w ', [System.StringComparison]::OrdinalIgnoreCase); $flowpos = $cmd.IndexOf($env:PROCESS_MATCH_FLOW_FILE, [System.StringComparison]::OrdinalIgnoreCase); if ($nameok -and $writeflagpos -ge 0 -and $flowpos -gt $writeflagpos) { 'ok' }" > "%PROCESS_MATCH_OUT%" 2>nul
+powershell -NoProfile -Command "$p = Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -eq [int]$env:PROCESS_MATCH_PID }; if (-not $p) { exit 1 }; $cmd = [string]$p.CommandLine; $nameok = $p.Name -and $p.Name -ieq 'mitmdump.exe'; $writeflagpos = $cmd.IndexOf(' -w ', [System.StringComparison]::OrdinalIgnoreCase); $flowpos = $cmd.IndexOf($env:PROCESS_MATCH_FLOW_FILE, [System.StringComparison]::OrdinalIgnoreCase); if ($nameok -and $writeflagpos -ge 0 -and $flowpos -gt $writeflagpos) { 'ok' }" > "%PROCESS_MATCH_OUT%" 2>nul
 if errorlevel 1 (
     if exist "%PROCESS_MATCH_OUT%" del /q "%PROCESS_MATCH_OUT%" >nul 2>&1
     exit /b 2
