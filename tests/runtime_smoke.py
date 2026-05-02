@@ -5,7 +5,9 @@ import argparse
 import http.client
 import http.server
 import json
+import os
 import socket
+import signal
 import subprocess
 import sys
 import tempfile
@@ -73,17 +75,90 @@ def build_windows_cmd(batch: Path, args: Sequence[str]) -> list[str]:
     ]
 
 
+def terminate_process_tree(process: subprocess.Popen[str]) -> None:
+    if process.poll() is not None:
+        return
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        return
+
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+        process.wait(timeout=5)
+    except Exception:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except Exception:
+            process.kill()
+
+
 def run_command(cmd: Sequence[str] | str, cwd: Path, timeout: int = 180) -> subprocess.CompletedProcess[str]:
     print("$", format_command(cmd), flush=True)
-    completed = subprocess.run(
+
+    stdout_file = tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        errors="replace",
+        prefix="mitm-captures-smoke-stdout-",
+        suffix=".log",
+        delete=False,
+    )
+    stderr_file = tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        errors="replace",
+        prefix="mitm-captures-smoke-stderr-",
+        suffix=".log",
+        delete=False,
+    )
+    stdout_path = Path(stdout_file.name)
+    stderr_path = Path(stderr_file.name)
+    creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0
+    process = subprocess.Popen(
         cmd,
         cwd=str(cwd),
         shell=isinstance(cmd, str),
         text=True,
-        capture_output=True,
-        timeout=timeout,
+        stdout=stdout_file,
+        stderr=stderr_file,
         errors="replace",
+        start_new_session=os.name != "nt",
+        creationflags=creationflags,
     )
+    try:
+        returncode = process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        terminate_process_tree(process)
+        try:
+            returncode = process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            returncode = process.wait(timeout=5)
+        stdout_file.close()
+        stderr_file.close()
+        stdout = read_text(stdout_path) if stdout_path.exists() else ""
+        stderr = read_text(stderr_path) if stderr_path.exists() else ""
+        if stdout:
+            print(stdout, end="", flush=True)
+        if stderr:
+            print(stderr, end="", file=sys.stderr, flush=True)
+        stdout_path.unlink(missing_ok=True)
+        stderr_path.unlink(missing_ok=True)
+        raise AssertionError(f"command timed out after {timeout}s: {format_command(cmd)}") from exc
+    finally:
+        stdout_file.close()
+        stderr_file.close()
+
+    stdout = read_text(stdout_path) if stdout_path.exists() else ""
+    stderr = read_text(stderr_path) if stderr_path.exists() else ""
+    stdout_path.unlink(missing_ok=True)
+    stderr_path.unlink(missing_ok=True)
+    completed = subprocess.CompletedProcess(cmd, returncode, stdout, stderr)
     if completed.stdout:
         print(completed.stdout, end="", flush=True)
     if completed.stderr:
