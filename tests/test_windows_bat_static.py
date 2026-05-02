@@ -877,8 +877,13 @@ class WindowsBatchEntrypointTest(unittest.TestCase):
             "$env:manifest_tmp_file",
             'move /y "%manifest_tmp_file%" "%manifest_file%" >nul',
             'if exist "%manifest_tmp_file%" del /q "%manifest_tmp_file%" >nul 2>&1',
+            "utf8encoding($false)",
         ]:
             self.assertIn(token, manifest_section)
+
+        self.assertIn("utf8encoding($false)", bundle_section)
+        self.assertNotIn("set-content -encoding utf8 -literalpath $env:bundle_tmp_file $bundle", bundle_section)
+        self.assertNotIn("set-content -encoding utf8 -literalpath $env:manifest_tmp_file", manifest_section)
 
         for token in [
             'set "bundle_tmp_file=%bundle_file%.tmp.%random%%random%"',

@@ -104,6 +104,26 @@ def safe_unlink(path: Path) -> None:
         print(f"[WARN] failed to remove temporary file {path}: {exc}", file=sys.stderr, flush=True)
 
 
+def emit_text(stream, text: str) -> None:
+    sanitized = text.replace("\ufeff", "")
+    if not sanitized:
+        return
+    try:
+        stream.write(sanitized)
+        stream.flush()
+        return
+    except UnicodeEncodeError:
+        encoding = getattr(stream, "encoding", None) or "utf-8"
+        buffer = getattr(stream, "buffer", None)
+        payload = sanitized.encode(encoding, errors="replace")
+        if buffer is not None:
+            buffer.write(payload)
+            buffer.flush()
+            return
+        stream.write(payload.decode(encoding, errors="replace"))
+        stream.flush()
+
+
 def run_command(cmd: Sequence[str] | str, cwd: Path, timeout: int = 180) -> subprocess.CompletedProcess[str]:
     print("$", format_command(cmd), flush=True)
 
@@ -151,9 +171,9 @@ def run_command(cmd: Sequence[str] | str, cwd: Path, timeout: int = 180) -> subp
         stdout = read_text(stdout_path) if stdout_path.exists() else ""
         stderr = read_text(stderr_path) if stderr_path.exists() else ""
         if stdout:
-            print(stdout, end="", flush=True)
+            emit_text(sys.stdout, stdout)
         if stderr:
-            print(stderr, end="", file=sys.stderr, flush=True)
+            emit_text(sys.stderr, stderr)
         safe_unlink(stdout_path)
         safe_unlink(stderr_path)
         raise AssertionError(f"command timed out after {timeout}s: {format_command(cmd)}") from exc
@@ -167,9 +187,9 @@ def run_command(cmd: Sequence[str] | str, cwd: Path, timeout: int = 180) -> subp
     safe_unlink(stderr_path)
     completed = subprocess.CompletedProcess(cmd, returncode, stdout, stderr)
     if completed.stdout:
-        print(completed.stdout, end="", flush=True)
+        emit_text(sys.stdout, completed.stdout)
     if completed.stderr:
-        print(completed.stderr, end="", file=sys.stderr, flush=True)
+        emit_text(sys.stderr, completed.stderr)
     return completed
 
 
