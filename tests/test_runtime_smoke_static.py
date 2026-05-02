@@ -15,6 +15,8 @@ class RuntimeSmokeStaticTest(unittest.TestCase):
         self.assertIn("stdout=stdout_file", text)
         self.assertIn("stderr=stderr_file", text)
         self.assertIn("terminate_process_tree(process)", text)
+        self.assertIn("safe_unlink(stdout_path)", text)
+        self.assertIn("ignore_cleanup_errors=True", text)
         self.assertNotIn("capture_output=True", text)
 
     def test_ci_runtime_step_has_hard_timeout_and_discovers_static_tests(self):

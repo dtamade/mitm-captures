@@ -97,6 +97,13 @@ def terminate_process_tree(process: subprocess.Popen[str]) -> None:
             process.kill()
 
 
+def safe_unlink(path: Path) -> None:
+    try:
+        path.unlink(missing_ok=True)
+    except OSError as exc:
+        print(f"[WARN] failed to remove temporary file {path}: {exc}", file=sys.stderr, flush=True)
+
+
 def run_command(cmd: Sequence[str] | str, cwd: Path, timeout: int = 180) -> subprocess.CompletedProcess[str]:
     print("$", format_command(cmd), flush=True)
 
@@ -147,8 +154,8 @@ def run_command(cmd: Sequence[str] | str, cwd: Path, timeout: int = 180) -> subp
             print(stdout, end="", flush=True)
         if stderr:
             print(stderr, end="", file=sys.stderr, flush=True)
-        stdout_path.unlink(missing_ok=True)
-        stderr_path.unlink(missing_ok=True)
+        safe_unlink(stdout_path)
+        safe_unlink(stderr_path)
         raise AssertionError(f"command timed out after {timeout}s: {format_command(cmd)}") from exc
     finally:
         stdout_file.close()
@@ -156,8 +163,8 @@ def run_command(cmd: Sequence[str] | str, cwd: Path, timeout: int = 180) -> subp
 
     stdout = read_text(stdout_path) if stdout_path.exists() else ""
     stderr = read_text(stderr_path) if stderr_path.exists() else ""
-    stdout_path.unlink(missing_ok=True)
-    stderr_path.unlink(missing_ok=True)
+    safe_unlink(stdout_path)
+    safe_unlink(stderr_path)
     completed = subprocess.CompletedProcess(cmd, returncode, stdout, stderr)
     if completed.stdout:
         print(completed.stdout, end="", flush=True)
@@ -346,7 +353,7 @@ def main() -> int:
     )
 
     started = False
-    with tempfile.TemporaryDirectory(prefix="mitm-captures-smoke-", dir=repo_root) as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="mitm-captures-smoke-", dir=repo_root, ignore_cleanup_errors=True) as temp_dir:
         target_dir = Path(temp_dir).resolve()
         commands = (
             shell_commands(repo_root, target_dir, proxy_port)

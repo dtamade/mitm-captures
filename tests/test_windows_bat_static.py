@@ -415,15 +415,44 @@ class WindowsBatchEntrypointTest(unittest.TestCase):
         self.assertIn('set "mitm_pid="', start_section)
         self.assertLess(
             start_section.index('set "mitm_pid="'),
-            start_section.index("for /f %%i in ('powershell -noprofile -command \"$p = start-process"),
+            start_section.index('start "" /b "%mitmdump_cmd%"'),
         )
         self.assertLess(
             start_section.index('set "mitm_pid="'),
             start_section.index('if not defined mitm_pid ('),
         )
-        self.assertIn("@('-q', '--listen-host', $env:listen_host", start_section)
-        self.assertNotIn("@(''-q'', ''--listen-host''", start_section)
-        self.assertIn('-redirectstandardoutput $env:log_file -redirectstandarderror $env:log_err_file', start_section)
+        self.assertIn('start "" /b "%mitmdump_cmd%" -q --listen-host "%listen_host%"', start_section)
+        self.assertIn('> "%log_file%" 2> "%log_err_file%"', start_section)
+        self.assertIn('call :wait_for_spawned_capture_pid "%flow_file%" mitm_pid', start_section)
+        self.assertNotIn("start-process -filepath $env:mitmdump_cmd", start_section)
+
+    def test_start_discovers_real_mitmdump_pid_after_background_launch(self):
+        text = BAT.read_text(encoding="utf-8").lower()
+        wait_section = section_between(text, ":wait_for_spawned_capture_pid", ":handle_existing_state_before_start")
+        find_section = section_between(text, ":find_capture_pid_by_flow", ":generate_har")
+
+        for token in [
+            'set "wait_pid_seconds=10"',
+            'call :find_capture_pid_by_flow "%wait_pid_flow_file%" wait_pid_value',
+            'if defined wait_pid_value (',
+            'set "%wait_pid_var%=%wait_pid_value%"',
+            'timeout /t 1 /nobreak >nul',
+        ]:
+            self.assertIn(token, wait_section)
+
+        for token in [
+            "$env:process_find_flow_file",
+            'set "process_find_pid="',
+            "get-ciminstance win32_process",
+            "name='mitmdump.exe'",
+            "$matches = @(",
+            "$matches.count -gt 0",
+            "commandline.indexof($flow, [system.stringcomparison]::ordinalignorecase)",
+            "sort-object processid -descending",
+            'findstr /r "^[0-9][0-9]*$" >nul',
+            'set "%~2=%process_find_pid%"',
+        ]:
+            self.assertIn(token, find_section)
 
     def test_start_clears_stale_latest_outputs_and_publishes_manifest_atomically(self):
         text = BAT.read_text(encoding="utf-8").lower()

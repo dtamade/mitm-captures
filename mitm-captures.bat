@@ -230,7 +230,8 @@ if not "%PROGRAM_MODE%"=="1" (
     )
 )
 
-for /f %%I in ('powershell -NoProfile -Command "$p = Start-Process -FilePath $env:MITMDUMP_CMD -ArgumentList @('-q', '--listen-host', $env:LISTEN_HOST, '--listen-port', $env:LISTEN_PORT, '--set', 'block_global=false', '--set', 'flow_detail=0', '-w', $env:FLOW_FILE) -RedirectStandardOutput $env:LOG_FILE -RedirectStandardError $env:LOG_ERR_FILE -PassThru; $p.Id"') do set "MITM_PID=%%I"
+start "" /b "%MITMDUMP_CMD%" -q --listen-host "%LISTEN_HOST%" --listen-port "%LISTEN_PORT%" --set block_global=false --set flow_detail=0 -w "%FLOW_FILE%" > "%LOG_FILE%" 2> "%LOG_ERR_FILE%"
+call :wait_for_spawned_capture_pid "%FLOW_FILE%" MITM_PID
 
 if not defined MITM_PID (
     >&2 echo [ERROR] Failed to start mitmdump.
@@ -855,6 +856,21 @@ timeout /t 1 /nobreak >nul
 set /a STARTUP_WAIT_SECONDS-=1
 goto :wait_for_startup_stability_loop
 
+:wait_for_spawned_capture_pid
+set "WAIT_PID_FLOW_FILE=%~1"
+set "WAIT_PID_VAR=%~2"
+set "WAIT_PID_SECONDS=10"
+:wait_for_spawned_capture_pid_loop
+call :find_capture_pid_by_flow "%WAIT_PID_FLOW_FILE%" WAIT_PID_VALUE
+if defined WAIT_PID_VALUE (
+    set "%WAIT_PID_VAR%=%WAIT_PID_VALUE%"
+    exit /b 0
+)
+if "%WAIT_PID_SECONDS%"=="0" exit /b 1
+timeout /t 1 /nobreak >nul
+set /a WAIT_PID_SECONDS-=1
+goto :wait_for_spawned_capture_pid_loop
+
 :handle_existing_state_before_start
 call :load_state || exit /b 1
 if defined MITM_PID (
@@ -1169,6 +1185,24 @@ set /p PROCESS_MATCH_RESULT=<"%PROCESS_MATCH_OUT%"
 if errorlevel 1 set "PROCESS_MATCH_RESULT="
 if exist "%PROCESS_MATCH_OUT%" del /q "%PROCESS_MATCH_OUT%" >nul 2>&1
 if /i not "%PROCESS_MATCH_RESULT%"=="ok" exit /b 2
+exit /b 0
+
+:find_capture_pid_by_flow
+set "PROCESS_FIND_FLOW_FILE=%~1"
+set "PROCESS_FIND_PID="
+set "%~2="
+if "%PROCESS_FIND_FLOW_FILE%"=="" exit /b 1
+set "PROCESS_FIND_OUT=%TEMP%\mitm-captures-pid-find-%RANDOM%%RANDOM%.txt"
+powershell -NoProfile -Command "$flow = $env:PROCESS_FIND_FLOW_FILE; $matches = @(Get-CimInstance Win32_Process -Filter \"Name='mitmdump.exe'\" | Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf($flow, [System.StringComparison]::OrdinalIgnoreCase) -ge 0 } | Sort-Object ProcessId -Descending); if ($matches.Count -gt 0) { $matches[0].ProcessId }" > "%PROCESS_FIND_OUT%" 2>nul
+if errorlevel 1 (
+    if exist "%PROCESS_FIND_OUT%" del /q "%PROCESS_FIND_OUT%" >nul 2>&1
+    exit /b 1
+)
+set /p PROCESS_FIND_PID=<"%PROCESS_FIND_OUT%"
+if exist "%PROCESS_FIND_OUT%" del /q "%PROCESS_FIND_OUT%" >nul 2>&1
+echo(%PROCESS_FIND_PID%| findstr /R "^[0-9][0-9]*$" >nul
+if errorlevel 1 exit /b 1
+set "%~2=%PROCESS_FIND_PID%"
 exit /b 0
 
 :generate_har
