@@ -75,6 +75,25 @@ def run_checked(cmd: list[str], cwd: Path, timeout: int = 180) -> subprocess.Com
     return completed
 
 
+def run_stop_checked(cmd: list[str], cwd: Path, timeout: int = 180) -> subprocess.CompletedProcess[str]:
+    try:
+        return run_checked(cmd, cwd=cwd, timeout=timeout)
+    except AssertionError:
+        completed = subprocess.run(
+            cmd,
+            cwd=str(cwd),
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+            errors="replace",
+        )
+        combined = f"{completed.stdout}\n{completed.stderr}"
+        if "Another capture operation is running. Please retry." not in combined:
+            raise
+        time.sleep(2.0)
+        return run_checked(cmd, cwd=cwd, timeout=timeout)
+
+
 def pick_free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
@@ -137,7 +156,7 @@ def shell_commands(repo_root: Path, target_dir: Path, proxy_port: int) -> dict[s
 
 def windows_commands(repo_root: Path, target_dir: Path, proxy_port: int) -> dict[str, list[str]]:
     batch = str(repo_root / "mitm-captures.bat")
-    base = ["cmd", "/c", batch]
+    base = ["cmd", "/c", "call", batch]
     return {
         "start": base + [
             "start",
@@ -250,7 +269,7 @@ def main() -> int:
             make_request_via_proxy(proxy_port, server_port)
             time.sleep(1.0)
 
-            stop_result = run_checked(commands["stop"], cwd=repo_root)
+            stop_result = run_stop_checked(commands["stop"], cwd=repo_root)
             started = False
             if "mitmproxy capture stop" not in stop_result.stdout.lower():
                 raise AssertionError("stop command did not report a stop summary")
@@ -266,7 +285,7 @@ def main() -> int:
         finally:
             if started:
                 try:
-                    run_checked(commands["stop"], cwd=repo_root, timeout=180)
+                    run_stop_checked(commands["stop"], cwd=repo_root, timeout=180)
                 except Exception as exc:  # pragma: no cover - best effort cleanup
                     print(f"[WARN] cleanup stop failed: {exc}", file=sys.stderr, flush=True)
             server.shutdown()
