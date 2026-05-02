@@ -22,6 +22,10 @@ class RuntimeSmokeStaticTest(unittest.TestCase):
     def test_ci_runtime_step_has_hard_timeout_and_discovers_static_tests(self):
         text = WORKFLOW.read_text(encoding="utf-8")
 
+        self.assertIn("permissions:", text)
+        self.assertIn("contents: read", text)
+        self.assertIn("uses: actions/checkout@v6", text)
+        self.assertIn("uses: actions/setup-python@v6", text)
         self.assertIn("python -m unittest discover -s tests", text)
         self.assertIn("timeout-minutes: 5", text)
         self.assertIn("python tests/runtime_smoke.py --entrypoint ${{ matrix.entrypoint }}", text)
