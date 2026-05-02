@@ -229,7 +229,7 @@ if not "%PROGRAM_MODE%"=="1" (
     )
 )
 
-for /f %%I in ('powershell -NoProfile -Command "$p = Start-Process -FilePath $env:MITMDUMP_CMD -ArgumentList @(''-q'', ''--listen-host'', $env:LISTEN_HOST, ''--listen-port'', $env:LISTEN_PORT, ''--set'', ''block_global=false'', ''--set'', ''flow_detail=0'', ''-w'', $env:FLOW_FILE) -RedirectStandardOutput $env:LOG_FILE -RedirectStandardError $env:LOG_FILE -PassThru; $p.Id"') do set "MITM_PID=%%I"
+for /f %%I in ('powershell -NoProfile -Command "$p = Start-Process -FilePath $env:MITMDUMP_CMD -ArgumentList @('-q', '--listen-host', $env:LISTEN_HOST, '--listen-port', $env:LISTEN_PORT, '--set', 'block_global=false', '--set', 'flow_detail=0', '-w', $env:FLOW_FILE) -RedirectStandardOutput $env:LOG_FILE -RedirectStandardError $env:LOG_FILE -PassThru; $p.Id"') do set "MITM_PID=%%I"
 
 if not defined MITM_PID (
     >&2 echo [ERROR] Failed to start mitmdump.
@@ -1246,7 +1246,7 @@ exit /b 0
 
 :bootstrap_cert_material
 set "BOOTSTRAP_PID="
-for /f %%I in ('powershell -NoProfile -Command "$p = Start-Process -FilePath $env:MITMDUMP_CMD -ArgumentList @(''-q'', ''--listen-host'', ''127.0.0.1'', ''--listen-port'', ''19090'') -PassThru -WindowStyle Hidden; Start-Sleep -Seconds 2; $p.Id"') do set "BOOTSTRAP_PID=%%I"
+for /f %%I in ('powershell -NoProfile -Command "$p = Start-Process -FilePath $env:MITMDUMP_CMD -ArgumentList @('-q', '--listen-host', '127.0.0.1', '--listen-port', '19090') -PassThru -WindowStyle Hidden; Start-Sleep -Seconds 2; $p.Id"') do set "BOOTSTRAP_PID=%%I"
 if defined BOOTSTRAP_PID taskkill /pid %BOOTSTRAP_PID% /t /f >nul 2>&1
 exit /b 0
 

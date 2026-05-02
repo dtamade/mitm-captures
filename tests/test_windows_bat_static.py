@@ -417,6 +417,8 @@ class WindowsBatchEntrypointTest(unittest.TestCase):
             start_section.index('set "mitm_pid="'),
             start_section.index('if not defined mitm_pid ('),
         )
+        self.assertIn("@('-q', '--listen-host', $env:listen_host", start_section)
+        self.assertNotIn("@(''-q'', ''--listen-host''", start_section)
 
     def test_start_clears_stale_latest_outputs_and_publishes_manifest_atomically(self):
         text = BAT.read_text(encoding="utf-8").lower()
