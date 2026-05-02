@@ -98,6 +98,10 @@ class WindowsBatchEntrypointTest(unittest.TestCase):
 
         self.assertIn("test-path -literalpath $env:target_dir -pathtype container", target_dir_section)
         self.assertIn('target directory does not exist: %target_dir%', target_dir_section)
+        self.assertIn(":merge_windows_log_streams", target_dir_section)
+        self.assertIn('if not exist "%log_file%" (', target_dir_section)
+        self.assertIn('move /y "%log_err_file%" "%log_file%" >nul', target_dir_section)
+        self.assertIn('type "%log_err_file%" >> "%log_file%"', target_dir_section)
         self.assertIn('.capture.lock', text)
 
         for token in [
@@ -419,6 +423,7 @@ class WindowsBatchEntrypointTest(unittest.TestCase):
         )
         self.assertIn("@('-q', '--listen-host', $env:listen_host", start_section)
         self.assertNotIn("@(''-q'', ''--listen-host''", start_section)
+        self.assertIn('-redirectstandardoutput $env:log_file -redirectstandarderror $env:log_err_file', start_section)
 
     def test_start_clears_stale_latest_outputs_and_publishes_manifest_atomically(self):
         text = BAT.read_text(encoding="utf-8").lower()

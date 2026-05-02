@@ -199,6 +199,7 @@ call :new_run_id
 set "FLOW_FILE=%BASE_NO_EXT%.flow"
 set "HAR_FILE=%BASE_NO_EXT%.har"
 set "LOG_FILE=%BASE_NO_EXT%.log"
+set "LOG_ERR_FILE=%BASE_NO_EXT%.stderr.log"
 set "MANIFEST_FILE=%BASE_NO_EXT%.manifest.json"
 set "INDEX_FILE=%BASE_NO_EXT%.index.ndjson"
 set "SUMMARY_FILE=%BASE_NO_EXT%.summary.md"
@@ -229,7 +230,7 @@ if not "%PROGRAM_MODE%"=="1" (
     )
 )
 
-for /f %%I in ('powershell -NoProfile -Command "$p = Start-Process -FilePath $env:MITMDUMP_CMD -ArgumentList @('-q', '--listen-host', $env:LISTEN_HOST, '--listen-port', $env:LISTEN_PORT, '--set', 'block_global=false', '--set', 'flow_detail=0', '-w', $env:FLOW_FILE) -RedirectStandardOutput $env:LOG_FILE -RedirectStandardError $env:LOG_FILE -PassThru; $p.Id"') do set "MITM_PID=%%I"
+for /f %%I in ('powershell -NoProfile -Command "$p = Start-Process -FilePath $env:MITMDUMP_CMD -ArgumentList @('-q', '--listen-host', $env:LISTEN_HOST, '--listen-port', $env:LISTEN_PORT, '--set', 'block_global=false', '--set', 'flow_detail=0', '-w', $env:FLOW_FILE) -RedirectStandardOutput $env:LOG_FILE -RedirectStandardError $env:LOG_ERR_FILE -PassThru; $p.Id"') do set "MITM_PID=%%I"
 
 if not defined MITM_PID (
     >&2 echo [ERROR] Failed to start mitmdump.
@@ -240,6 +241,7 @@ call :wait_for_startup_stability
 if errorlevel 1 (
     >&2 echo [ERROR] mitmdump exited during startup.
     if exist "%LOG_FILE%" type "%LOG_FILE%"
+    if exist "%LOG_ERR_FILE%" type "%LOG_ERR_FILE%"
     exit /b 1
 )
 
@@ -293,6 +295,7 @@ if not "%PROGRAM_MODE%"=="1" call :validate_proxy_restore_state || exit /b 1
 for %%I in ("%FLOW_FILE%") do set "BASE_NO_EXT=%%~dpnI"
 if not defined HAR_FILE set "HAR_FILE=%BASE_NO_EXT%.har"
 if not defined LOG_FILE set "LOG_FILE=%BASE_NO_EXT%.log"
+if not defined LOG_ERR_FILE set "LOG_ERR_FILE=%BASE_NO_EXT%.stderr.log"
 if not defined MANIFEST_FILE set "MANIFEST_FILE=%BASE_NO_EXT%.manifest.json"
 if not defined INDEX_FILE set "INDEX_FILE=%BASE_NO_EXT%.index.ndjson"
 if not defined SUMMARY_FILE set "SUMMARY_FILE=%BASE_NO_EXT%.summary.md"
@@ -361,6 +364,8 @@ if /i "%STOP_STATUS%"=="kill-failed" (
     )
 )
 if /i not "%STOP_STATUS%"=="kill-failed" (
+    call :merge_windows_log_streams || exit /b 1
+
     if "%NO_HAR%"=="1" (
         set "HAR_STATUS=skipped"
     )
@@ -619,6 +624,21 @@ if errorlevel 1 (
     >&2 echo [ERROR] Target directory does not exist: %TARGET_DIR%
     exit /b 1
 )
+exit /b 0
+
+:merge_windows_log_streams
+if not defined LOG_ERR_FILE exit /b 0
+if not exist "%LOG_ERR_FILE%" exit /b 0
+if not exist "%LOG_FILE%" (
+    move /y "%LOG_ERR_FILE%" "%LOG_FILE%" >nul
+    if errorlevel 1 exit /b 1
+    exit /b 0
+)
+>>"%LOG_FILE%" echo(
+type "%LOG_ERR_FILE%" >> "%LOG_FILE%"
+if errorlevel 1 exit /b 1
+del /q "%LOG_ERR_FILE%" >nul 2>&1
+if exist "%LOG_ERR_FILE%" exit /b 1
 exit /b 0
 
 :validate_start_args
