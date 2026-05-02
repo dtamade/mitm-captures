@@ -12,6 +12,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+from typing import Sequence
 
 
 EXPECTED_PATH = "/ci-smoke?answer=42"
@@ -56,11 +57,18 @@ def quote_for_log(arg: str) -> str:
     return arg
 
 
-def run_checked(cmd: list[str], cwd: Path, timeout: int = 180) -> subprocess.CompletedProcess[str]:
-    print("$", " ".join(quote_for_log(part) for part in cmd), flush=True)
+def format_command(cmd: Sequence[str] | str) -> str:
+    if isinstance(cmd, str):
+        return cmd
+    return " ".join(quote_for_log(part) for part in cmd)
+
+
+def run_command(cmd: Sequence[str] | str, cwd: Path, timeout: int = 180) -> subprocess.CompletedProcess[str]:
+    print("$", format_command(cmd), flush=True)
     completed = subprocess.run(
         cmd,
         cwd=str(cwd),
+        shell=isinstance(cmd, str),
         text=True,
         capture_output=True,
         timeout=timeout,
@@ -70,28 +78,30 @@ def run_checked(cmd: list[str], cwd: Path, timeout: int = 180) -> subprocess.Com
         print(completed.stdout, end="", flush=True)
     if completed.stderr:
         print(completed.stderr, end="", file=sys.stderr, flush=True)
-    if completed.returncode != 0:
-        raise AssertionError(f"command failed with exit code {completed.returncode}: {' '.join(cmd)}")
     return completed
 
 
-def run_stop_checked(cmd: list[str], cwd: Path, timeout: int = 180) -> subprocess.CompletedProcess[str]:
-    try:
-        return run_checked(cmd, cwd=cwd, timeout=timeout)
-    except AssertionError:
-        completed = subprocess.run(
-            cmd,
-            cwd=str(cwd),
-            text=True,
-            capture_output=True,
-            timeout=timeout,
-            errors="replace",
-        )
-        combined = f"{completed.stdout}\n{completed.stderr}"
-        if "Another capture operation is running. Please retry." not in combined:
-            raise
-        time.sleep(2.0)
-        return run_checked(cmd, cwd=cwd, timeout=timeout)
+def run_checked(cmd: Sequence[str] | str, cwd: Path, timeout: int = 180) -> subprocess.CompletedProcess[str]:
+    completed = run_command(cmd, cwd=cwd, timeout=timeout)
+    if completed.returncode != 0:
+        raise AssertionError(f"command failed with exit code {completed.returncode}: {format_command(cmd)}")
+    return completed
+
+
+def run_stop_checked(cmd: Sequence[str] | str, cwd: Path, timeout: int = 180) -> subprocess.CompletedProcess[str]:
+    completed = run_command(cmd, cwd=cwd, timeout=timeout)
+    if completed.returncode == 0:
+        return completed
+
+    combined = f"{completed.stdout}\n{completed.stderr}"
+    if "Another capture operation is running. Please retry." not in combined:
+        raise AssertionError(f"command failed with exit code {completed.returncode}: {format_command(cmd)}")
+
+    time.sleep(2.0)
+    completed = run_command(cmd, cwd=cwd, timeout=timeout)
+    if completed.returncode != 0:
+        raise AssertionError(f"command failed with exit code {completed.returncode}: {format_command(cmd)}")
+    return completed
 
 
 def pick_free_port() -> int:
@@ -154,27 +164,15 @@ def shell_commands(repo_root: Path, target_dir: Path, proxy_port: int) -> dict[s
     }
 
 
-def windows_commands(repo_root: Path, target_dir: Path, proxy_port: int) -> dict[str, list[str]]:
+def windows_commands(repo_root: Path, target_dir: Path, proxy_port: int) -> dict[str, str]:
     batch = str(repo_root / "mitm-captures.bat")
-    base = ["cmd", "/c", "call", batch]
+    quoted_batch = f'"{batch}"'
+    quoted_dir = f'"{target_dir}"'
     return {
-        "start": base + [
-            "start",
-            "--program",
-            "--dir",
-            str(target_dir),
-            "--host",
-            "127.0.0.1",
-            "--port",
-            str(proxy_port),
-        ],
-        "status": base + ["status", "--dir", str(target_dir)],
-        "stop": base + [
-            "stop",
-            "--dir",
-            str(target_dir),
-        ],
-        "ai": base + ["ai", "--dir", str(target_dir), "--stdout"],
+        "start": f'{quoted_batch} start --program --dir {quoted_dir} --host 127.0.0.1 --port {proxy_port}',
+        "status": f"{quoted_batch} status --dir {quoted_dir}",
+        "stop": f"{quoted_batch} stop --dir {quoted_dir}",
+        "ai": f"{quoted_batch} ai --dir {quoted_dir} --stdout",
     }
 
 
