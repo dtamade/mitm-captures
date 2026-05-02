@@ -1,10 +1,14 @@
 import re
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
 BAT = ROOT / "mitm-captures.bat"
+STATE_IMPORT = ROOT / "state_import.py"
 
 
 def section_between(text: str, start_label: str, end_label: str) -> str:
@@ -309,33 +313,69 @@ class WindowsBatchEntrypointTest(unittest.TestCase):
 
     def test_load_state_escapes_single_percent_and_callers_fail_closed(self):
         text = BAT.read_text(encoding="utf-8").lower()
+        load_state_section = section_between(text, ":load_state", ":reset_loaded_state_variables")
 
-        self.assertIn('replace(\\"%\\", \\"%%\\")', text)
-        self.assertNotIn('replace(\\"%%\\", \\"%%%%\\")', text)
+        self.assertIn("call :resolve_python_cmd", load_state_section)
+        self.assertIn("state_import.py", load_state_section)
+        self.assertIn('"%python_cmd%" "%script_dir%\\state_import.py" "%env_file%" "%state_import_file%"', load_state_section)
+        self.assertIn("python is required to load capture state", load_state_section)
+        self.assertNotIn("powershell -noprofile -command", load_state_section)
         self.assertGreaterEqual(text.count("call :load_state || exit /b 1"), 3)
 
     def test_load_state_rejects_unexpected_keys_before_importing_generated_cmd(self):
         text = BAT.read_text(encoding="utf-8").lower()
         load_state_section = section_between(text, ":load_state", ":reset_loaded_state_variables")
 
-        for token in [
-            "$allowedstatekeys = @{}",
-            '\\"mitm_pid\\"',
-            '\\"program_mode\\"',
-            '\\"flow_file\\"',
-            '\\"winhttp_snapshot_status\\"',
-            '$idx = $line.indexof(\\"=\\")',
-            "$key = $line.substring(0, $idx)",
-            "containskey($key)",
-            "unexpected state key: ",
-            '\\"set \\" + [char]34 + $key + \\"=\\" + $value + [char]34',
-        ]:
-            self.assertIn(token, load_state_section)
-
+        self.assertIn("state_import.py", load_state_section)
+        self.assertNotIn("$allowedstatekeys", load_state_section)
+        self.assertNotIn("containskey($key)", load_state_section)
         self.assertNotIn(
             "$key = $matches.k",
             load_state_section,
         )
+
+    def test_state_import_helper_escapes_percent_and_preserves_equals(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_file = Path(temp_dir) / "proxy_info.env"
+            import_file = Path(temp_dir) / "state.cmd"
+            state_file.write_text(
+                "MITM_PID=123\n"
+                "FLOW_FILE=C:\\tmp\\100%\\capture=one.flow\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(STATE_IMPORT), str(state_file), str(import_file)],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                import_file.read_text(encoding="utf-8"),
+                'set "MITM_PID=123"\n'
+                'set "FLOW_FILE=C:\\tmp\\100%%\\capture=one.flow"\n',
+            )
+
+    def test_state_import_helper_rejects_unexpected_keys_before_writing(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_file = Path(temp_dir) / "proxy_info.env"
+            import_file = Path(temp_dir) / "state.cmd"
+            state_file.write_text("MITM_PID=123\nBAD_KEY=value\n", encoding="utf-8")
+
+            result = subprocess.run(
+                [sys.executable, str(STATE_IMPORT), str(state_file), str(import_file)],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Unexpected state key: BAD_KEY", result.stderr)
+            self.assertFalse(import_file.exists())
 
     def test_start_rolls_back_process_when_state_persistence_fails(self):
         text = BAT.read_text(encoding="utf-8").lower()

@@ -902,7 +902,13 @@ exit /b 1
 :load_state
 call :reset_loaded_state_variables
 set "STATE_IMPORT_FILE=%TEMP%\mitm-captures-state-%RANDOM%%RANDOM%.cmd"
-powershell -NoProfile -Command "$allowedStateKeys = @{}; @(\"MITM_PID\", \"PROGRAM_MODE\", \"TARGET_DIR\", \"CAPTURES_DIR\", \"RUN_ID\", \"FLOW_FILE\", \"HAR_FILE\", \"LOG_FILE\", \"MANIFEST_FILE\", \"INDEX_FILE\", \"SUMMARY_FILE\", \"AI_JSON_FILE\", \"AI_MD_FILE\", \"BUNDLE_FILE\", \"LISTEN_HOST\", \"LISTEN_PORT\", \"STARTED_AT\", \"PREV_PROXY_ENABLE\", \"PREV_PROXY_SERVER\", \"PREV_PROXY_OVERRIDE\", \"WINHTTP_DUMP_FILE\", \"WINHTTP_SNAPSHOT_STATUS\", \"START_LATEST_FLOW_BACKUP_FILE\", \"START_LATEST_HAR_BACKUP_FILE\", \"START_LATEST_LOG_BACKUP_FILE\", \"START_LATEST_INDEX_BACKUP_FILE\", \"START_LATEST_SUMMARY_BACKUP_FILE\", \"START_LATEST_AI_JSON_BACKUP_FILE\", \"START_LATEST_AI_MD_BACKUP_FILE\", \"START_LATEST_AI_BUNDLE_BACKUP_FILE\") | ForEach-Object { $allowedStateKeys[$_] = $true }; $cmdLines = foreach ($line in Get-Content -LiteralPath $env:ENV_FILE) { $idx = $line.IndexOf(\"=\"); if ($idx -ge 1) { $key = $line.Substring(0, $idx); if (-not $allowedStateKeys.ContainsKey($key)) { throw (\"Unexpected state key: \" + $key) }; $value = $line.Substring($idx + 1).Replace(\"%\", \"%%\"); \"set \" + [char]34 + $key + \"=\" + $value + [char]34 } }; Set-Content -Encoding OEM -LiteralPath $env:STATE_IMPORT_FILE $cmdLines"
+if not defined PYTHON_CMD call :resolve_python_cmd
+if errorlevel 1 (
+    >&2 echo [ERROR] Python is required to load capture state.
+    del /q "%STATE_IMPORT_FILE%" >nul 2>&1
+    exit /b 1
+)
+"%PYTHON_CMD%" "%SCRIPT_DIR%\state_import.py" "%ENV_FILE%" "%STATE_IMPORT_FILE%"
 if errorlevel 1 (
     del /q "%STATE_IMPORT_FILE%" >nul 2>&1
     exit /b 1

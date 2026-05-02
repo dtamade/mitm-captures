@@ -15,7 +15,7 @@
 ```bash
 python3 -m unittest tests.test_windows_bat_static
 bash -n startCaptures.sh stopCaptures.sh analyzeLatest.sh ai.sh
-python3 -m py_compile .har_addon.py flow2har.py flow_report.py ai_brief.py
+python3 -m py_compile .har_addon.py flow2har.py flow_report.py ai_brief.py state_import.py
 python3 tests/runtime_smoke.py --entrypoint shell
 ```
 
