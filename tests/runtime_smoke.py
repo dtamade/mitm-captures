@@ -266,8 +266,8 @@ def main() -> int:
     )
 
     started = False
-    with tempfile.TemporaryDirectory(prefix="mitm-captures-smoke-") as temp_dir:
-        target_dir = Path(temp_dir)
+    with tempfile.TemporaryDirectory(prefix="mitm-captures-smoke-", dir=repo_root) as temp_dir:
+        target_dir = Path(temp_dir).resolve()
         commands = (
             shell_commands(repo_root, target_dir, proxy_port)
             if args.entrypoint == "shell"

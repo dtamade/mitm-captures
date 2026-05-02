@@ -614,7 +614,8 @@ if exist "%CAPTURE_LOCK_DIR%" rd "%CAPTURE_LOCK_DIR%" >nul 2>&1
 exit /b 0
 
 :validate_target_dir
-if not exist "%TARGET_DIR%\NUL" (
+powershell -NoProfile -Command "if (Test-Path -LiteralPath $env:TARGET_DIR -PathType Container) { exit 0 } else { exit 1 }" >nul 2>&1
+if errorlevel 1 (
     >&2 echo [ERROR] Target directory does not exist: %TARGET_DIR%
     exit /b 1
 )

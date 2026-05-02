@@ -96,7 +96,7 @@ class WindowsBatchEntrypointTest(unittest.TestCase):
         lock_section = section_between(text, ":run_with_capture_lock", ":validate_target_dir")
         target_dir_section = section_between(text, ":validate_target_dir", ":ensure_deps")
 
-        self.assertIn('if not exist "%target_dir%\\nul" (', target_dir_section)
+        self.assertIn("test-path -literalpath $env:target_dir -pathtype container", target_dir_section)
         self.assertIn('target directory does not exist: %target_dir%', target_dir_section)
         self.assertIn('.capture.lock', text)
 
