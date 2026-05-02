@@ -1,6 +1,7 @@
 # mitm-captures
 
 一组用于本地启动/停止 `mitmdump` 抓包并导出 HAR 的小脚本。
+支持 Linux/macOS 的 shell 入口，也支持 Windows 的单文件批处理入口 `mitm-captures.bat`。
 
 它解决三个问题：
 - 一键启动抓包并落盘 `flow`
@@ -26,6 +27,33 @@
 
 可选依赖：
 - `gsettings`（GNOME 自动代理管理）
+
+## 平台入口
+
+Linux/macOS:
+
+```bash
+./startCaptures.sh
+./stopCaptures.sh
+./ai.sh
+```
+
+Windows:
+
+```bat
+mitm-captures.bat install
+mitm-captures.bat start
+mitm-captures.bat stop
+mitm-captures.bat ai
+```
+
+首次在 Windows 上使用时，通常先执行一次：
+
+```bat
+mitm-captures.bat cert
+```
+
+它会安装 mitmproxy 当前用户证书，便于浏览器和系统流量被正确代理。
 
 ## 快速开始
 
@@ -87,6 +115,12 @@ mitmweb -r captures/latest.flow
 
 默认会生成：`captures/latest.ai.bundle.txt`。
 把这个文件整体贴给 AI，通常最省心、最稳定。
+
+## 安全提示
+
+- 抓包文件通常包含 Cookie、Token、请求体、响应体与内部接口路径
+- 不要把 `captures/`、`.har`、`.flow`、`.log` 提交到业务仓库或公开仓库
+- 对外分享问题样本前，先确认已做脱敏或改用摘要类产物（如 `summary.md`、`ai.md`）
 
 ## 验证与 CI
 
@@ -238,3 +272,8 @@ gsettings set org.gnome.system.proxy mode 'none'
 
 - 将 `captures/` 加入你的项目 `.gitignore`
 - 把 `.har` 当作敏感数据管理（包含请求和返回内容）
+- 提 issue 或 PR 前先跑一遍最小本地验证，确保与 GitHub Actions 一致
+
+## 贡献
+
+协作约束见 [CONTRIBUTING.md](CONTRIBUTING.md)。
