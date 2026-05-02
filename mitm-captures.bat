@@ -21,7 +21,7 @@ set "PYTHON_CMD="
 set "MITMDUMP_CMD="
 set "WINHTTP_SNAPSHOT_STATUS=not-requested"
 
-call :parse_args %*
+call :parse_args %1 %2 %3 %4 %5 %6 %7 %8 %9
 if not defined ARG_ERROR if /i not "%HAR_BACKEND%"=="auto" if /i not "%HAR_BACKEND%"=="mitmdump" if /i not "%HAR_BACKEND%"=="python" (
     set "ARG_ERROR=Invalid --har-backend: %HAR_BACKEND%"
 )

@@ -63,6 +63,16 @@ def format_command(cmd: Sequence[str] | str) -> str:
     return " ".join(quote_for_log(part) for part in cmd)
 
 
+def build_windows_cmd(batch: Path, args: Sequence[str]) -> list[str]:
+    return [
+        "cmd.exe",
+        "/d",
+        "/s",
+        "/c",
+        "call " + subprocess.list2cmdline([str(batch), *args]),
+    ]
+
+
 def run_command(cmd: Sequence[str] | str, cwd: Path, timeout: int = 180) -> subprocess.CompletedProcess[str]:
     print("$", format_command(cmd), flush=True)
     completed = subprocess.run(
@@ -164,15 +174,25 @@ def shell_commands(repo_root: Path, target_dir: Path, proxy_port: int) -> dict[s
     }
 
 
-def windows_commands(repo_root: Path, target_dir: Path, proxy_port: int) -> dict[str, str]:
-    batch = str(repo_root / "mitm-captures.bat")
-    quoted_batch = f'"{batch}"'
-    quoted_dir = f'"{target_dir}"'
+def windows_commands(repo_root: Path, target_dir: Path, proxy_port: int) -> dict[str, list[str]]:
+    batch = repo_root / "mitm-captures.bat"
     return {
-        "start": f'{quoted_batch} start --program --dir {quoted_dir} --host 127.0.0.1 --port {proxy_port}',
-        "status": f"{quoted_batch} status --dir {quoted_dir}",
-        "stop": f"{quoted_batch} stop --dir {quoted_dir}",
-        "ai": f"{quoted_batch} ai --dir {quoted_dir} --stdout",
+        "start": build_windows_cmd(
+            batch,
+            [
+                "start",
+                "--program",
+                "--dir",
+                str(target_dir),
+                "--host",
+                "127.0.0.1",
+                "--port",
+                str(proxy_port),
+            ],
+        ),
+        "status": build_windows_cmd(batch, ["status", "--dir", str(target_dir)]),
+        "stop": build_windows_cmd(batch, ["stop", "--dir", str(target_dir)]),
+        "ai": build_windows_cmd(batch, ["ai", "--dir", str(target_dir), "--stdout"]),
     }
 
 

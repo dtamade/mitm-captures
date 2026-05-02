@@ -769,6 +769,16 @@ class WindowsBatchEntrypointTest(unittest.TestCase):
         self.assertIn('set "print_stdout=1"', parse_args_section)
         self.assertIn('if "%print_stdout%"=="1" type "%latest_ai_bundle_file%"', ai_section)
 
+    def test_batch_entrypoint_forwards_shifted_args_into_parse_args(self):
+        text = BAT.read_text(encoding="utf-8").lower()
+        prefix = text[:text.index("\n:usage\n")]
+
+        self.assertIn('set "command=%~1"', prefix)
+        self.assertIn("shift /1", prefix)
+        self.assertIn("call :parse_args %1 %2 %3 %4 %5 %6 %7 %8 %9", prefix)
+        self.assertNotIn("call :parse_args %*", prefix)
+        self.assertLess(prefix.index("shift /1"), prefix.index("call :parse_args %1 %2 %3 %4 %5 %6 %7 %8 %9"))
+
     def test_manifest_and_ai_bundle_publish_atomically(self):
         text = BAT.read_text(encoding="utf-8").lower()
         manifest_section = section_between(text, ":write_manifest", ":bootstrap_cert_material")
