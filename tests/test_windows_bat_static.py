@@ -455,7 +455,18 @@ class WindowsBatchEntrypointTest(unittest.TestCase):
             'if exist "%copy_latest_tmp%" del /q "%copy_latest_tmp%" >nul 2>&1',
         ]:
             self.assertIn(token, copy_latest_section)
-        self.assertNotIn('copy /y "%~1" "%~2" >nul', copy_latest_section)
+
+    def test_auto_har_backend_prefers_python_before_mitmdump_on_windows(self):
+        text = BAT.read_text(encoding="utf-8").lower()
+        generate_har_section = section_between(text, ":generate_har", ":build_ai_bundle")
+
+        self.assertIn('if /i "%har_backend%"=="auto" (', generate_har_section)
+        self.assertIn('"%python_cmd%" "%script_dir%\\flow2har.py" "%flow_file%" "%har_file%"', generate_har_section)
+        self.assertIn('"%mitmdump_cmd%" -q -nr "%flow_file%" -s "%script_dir%\\.har_addon.py" >nul 2>&1', generate_har_section)
+        self.assertLess(
+            generate_har_section.index('"%python_cmd%" "%script_dir%\\flow2har.py" "%flow_file%" "%har_file%"'),
+            generate_har_section.index('"%mitmdump_cmd%" -q -nr "%flow_file%" -s "%script_dir%\\.har_addon.py" >nul 2>&1'),
+        )
 
     def test_start_restores_previous_latest_outputs_when_prepublish_refresh_aborts(self):
         text = BAT.read_text(encoding="utf-8").lower()

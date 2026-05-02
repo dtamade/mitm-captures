@@ -1193,6 +1193,13 @@ if /i "%HAR_BACKEND%"=="mitmdump" (
 )
 
 if /i "%HAR_BACKEND%"=="auto" (
+    if defined PYTHON_CMD (
+        "%PYTHON_CMD%" "%SCRIPT_DIR%\flow2har.py" "%FLOW_FILE%" "%HAR_FILE%"
+        if not errorlevel 1 (
+            set "HAR_STATUS=ok"
+            exit /b 0
+        )
+    )
     if defined MITMDUMP_CMD (
         set "MITM_HAR_FILE=%HAR_FILE%"
         "%MITMDUMP_CMD%" -q -nr "%FLOW_FILE%" -s "%SCRIPT_DIR%\.har_addon.py" >nul 2>&1

@@ -145,6 +145,10 @@ def read_json(path: Path) -> dict[str, object]:
     return json.loads(read_text(path))
 
 
+def announce_step(step: str) -> None:
+    print(f"[SMOKE] {step}", flush=True)
+
+
 def shell_commands(repo_root: Path, target_dir: Path, proxy_port: int) -> dict[str, list[str]]:
     return {
         "start": [
@@ -253,6 +257,7 @@ def assert_artifacts(target_dir: Path, bundle_output: str) -> None:
 def main() -> int:
     args = parse_args()
     repo_root = Path(args.repo_root).resolve()
+    command_timeout = 180 if args.entrypoint == "shell" else 90
     proxy_port = pick_free_port()
     server = SmokeHTTPServer(("127.0.0.1", 0))
     server_port = int(server.server_address[1])
@@ -274,25 +279,30 @@ def main() -> int:
             else windows_commands(repo_root, target_dir, proxy_port)
         )
         try:
-            start_result = run_checked(commands["start"], cwd=repo_root)
+            announce_step("start")
+            start_result = run_checked(commands["start"], cwd=repo_root, timeout=command_timeout)
             if "mitmproxy capture started" not in start_result.stdout.lower():
                 raise AssertionError("start command did not report a started capture")
             started = True
 
             if args.entrypoint == "windows":
-                status_result = run_checked(commands["status"], cwd=repo_root)
+                announce_step("status")
+                status_result = run_checked(commands["status"], cwd=repo_root, timeout=command_timeout)
                 if "Running:         yes" not in status_result.stdout:
                     raise AssertionError("windows status command did not report Running: yes")
 
+            announce_step("request")
             make_request_via_proxy(proxy_port, server_port)
             time.sleep(1.0)
 
-            stop_result = run_stop_checked(commands["stop"], cwd=repo_root)
+            announce_step("stop")
+            stop_result = run_stop_checked(commands["stop"], cwd=repo_root, timeout=command_timeout)
             started = False
             if "mitmproxy capture stop" not in stop_result.stdout.lower():
                 raise AssertionError("stop command did not report a stop summary")
 
-            bundle_result = run_checked(commands["ai"], cwd=repo_root)
+            announce_step("ai")
+            bundle_result = run_checked(commands["ai"], cwd=repo_root, timeout=command_timeout)
             if "# AI Analysis Bundle" not in bundle_result.stdout:
                 raise AssertionError("ai command did not emit the AI bundle")
 
@@ -303,7 +313,7 @@ def main() -> int:
         finally:
             if started:
                 try:
-                    run_stop_checked(commands["stop"], cwd=repo_root, timeout=180)
+                    run_stop_checked(commands["stop"], cwd=repo_root, timeout=command_timeout)
                 except Exception as exc:  # pragma: no cover - best effort cleanup
                     print(f"[WARN] cleanup stop failed: {exc}", file=sys.stderr, flush=True)
             server.shutdown()
