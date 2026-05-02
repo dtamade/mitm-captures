@@ -137,9 +137,38 @@ FORCE_RECOVER=false
 MITM_PID=""
 TMP_ENV_FILE=""
 PROXY_APPLIED=false
+LOCK_DIR=""
+
+release_lock() {
+    if [[ -n "$LOCK_DIR" && -d "$LOCK_DIR" ]]; then
+        rmdir "$LOCK_DIR" 2>/dev/null || true
+        LOCK_DIR=""
+    fi
+}
+
+acquire_lock_or_exit() {
+    if command -v flock >/dev/null 2>&1; then
+        exec 9>"$LOCK_FILE"
+        if ! flock -n 9; then
+            err "Another capture operation is running. Please retry."
+            exit 1
+        fi
+        return
+    fi
+
+    LOCK_DIR="${LOCK_FILE}.d"
+    if mkdir "$LOCK_DIR" 2>/dev/null; then
+        return
+    fi
+
+    err "Another capture operation is running. Please retry."
+    exit 1
+}
 
 cleanup_on_error() {
     local exit_code="$?"
+
+    release_lock
 
     if [[ "$exit_code" -eq 0 ]]; then
         return 0
@@ -231,11 +260,7 @@ ENV_FILE="$CAPTURES_DIR/proxy_info.env"
 LOCK_FILE="$CAPTURES_DIR/.capture.lock"
 
 mkdir -p "$CAPTURES_DIR"
-exec 9>"$LOCK_FILE"
-if ! flock -n 9; then
-    err "Another capture operation is running. Please retry."
-    exit 1
-fi
+acquire_lock_or_exit
 
 if [[ -f "$ENV_FILE" ]]; then
     ACTIVE_PID="$(read_kv "MITM_PID" "$ENV_FILE")"

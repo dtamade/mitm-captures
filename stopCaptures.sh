@@ -30,6 +30,34 @@ err() {
     echo "[ERROR] $*" >&2
 }
 
+LOCK_DIR=""
+
+release_lock() {
+    if [[ -n "$LOCK_DIR" && -d "$LOCK_DIR" ]]; then
+        rmdir "$LOCK_DIR" 2>/dev/null || true
+        LOCK_DIR=""
+    fi
+}
+
+acquire_lock_or_exit() {
+    if command -v flock >/dev/null 2>&1; then
+        exec 9>"$LOCK_FILE"
+        if ! flock -n 9; then
+            err "Another capture operation is running. Please retry."
+            exit 1
+        fi
+        return
+    fi
+
+    LOCK_DIR="${LOCK_FILE}.d"
+    if mkdir "$LOCK_DIR" 2>/dev/null; then
+        return
+    fi
+
+    err "Another capture operation is running. Please retry."
+    exit 1
+}
+
 require_value_arg() {
     local opt="$1"
     local value="${2:-}"
@@ -133,7 +161,117 @@ har_convert_with_python() {
     local script_dir
     script_dir="$(cd "$(dirname "$0")" && pwd)"
 
-    python3 "$script_dir/flow2har.py" "$flow_file" "$har_file" >/dev/null 2>&1
+    "${PYTHON_CMD[@]}" "$script_dir/flow2har.py" "$flow_file" "$har_file" >/dev/null 2>&1
+}
+
+python_cmd_supports_mitmproxy() {
+    local candidate="$1"
+    "$candidate" -c "import mitmproxy, sys; print(sys.executable)" >/dev/null 2>&1
+}
+
+mitmdump_python_candidate() {
+    local mitmdump_path first_line shebang_cmd
+    local -a shebang_parts
+
+    if ! command -v mitmdump >/dev/null 2>&1; then
+        return 1
+    fi
+
+    mitmdump_path="$(command -v mitmdump)"
+    if ! IFS= read -r first_line <"$mitmdump_path"; then
+        return 1
+    fi
+    if [[ "$first_line" != '#!'* ]]; then
+        return 1
+    fi
+
+    shebang_cmd="${first_line#\#!}"
+    if [[ "$shebang_cmd" == /usr/bin/env\ * ]]; then
+        shebang_cmd="${shebang_cmd#/usr/bin/env }"
+    fi
+
+    read -r -a shebang_parts <<<"$shebang_cmd"
+    if [[ "${#shebang_parts[@]}" -eq 0 ]]; then
+        return 1
+    fi
+
+    if command -v "${shebang_parts[0]}" >/dev/null 2>&1; then
+        command -v "${shebang_parts[0]}"
+        return 0
+    fi
+
+    printf '%s\n' "${shebang_parts[0]}"
+}
+
+resolve_python_cmd() {
+    local candidate
+
+    PYTHON_CMD=()
+
+    if candidate="$(mitmdump_python_candidate 2>/dev/null)"; then
+        if [[ -n "$candidate" ]] && python_cmd_supports_mitmproxy "$candidate"; then
+            PYTHON_CMD=("$candidate")
+            return 0
+        fi
+    fi
+
+    for candidate in python3 python; do
+        if command -v "$candidate" >/dev/null 2>&1 && python_cmd_supports_mitmproxy "$candidate"; then
+            PYTHON_CMD=("$candidate")
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+write_manifest_file() {
+    MANIFEST_STATUS="ok"
+    MANIFEST_TMP="${MANIFEST_FILE}.tmp.$$"
+    if ! cat >"$MANIFEST_TMP" <<EOF
+{
+  "schemaVersion": "1",
+  "runId": "${RUN_ID}",
+  "targetDir": "${TARGET_DIR}",
+  "capturesDir": "${CAPTURES_DIR}",
+  "startedAt": "${STARTED_AT}",
+  "stoppedAt": "${STOPPED_AT}",
+  "programMode": ${PROGRAM_MODE_JSON},
+  "listen": {
+    "host": "${LISTEN_HOST}",
+    "port": "${LISTEN_PORT}"
+  },
+  "process": {
+    "pid": "${MITM_PID}",
+    "stopStatus": "${STOP_STATUS}"
+  },
+  "artifacts": {
+    "flow": "${FLOW_FILE}",
+    "flowSha256": "${FLOW_SHA256}",
+    "har": "${HAR_FILE}",
+    "harStatus": "${HAR_STATUS}",
+    "harBackend": "${HAR_BACKEND_USED}",
+    "log": "${LOG_FILE}",
+    "manifest": "${MANIFEST_FILE}",
+    "index": "${INDEX_FILE}",
+    "summary": "${SUMMARY_FILE}",
+    "reportStatus": "${REPORT_STATUS}",
+    "aiJson": "${AI_JSON_FILE}",
+    "aiMd": "${AI_MD_FILE}",
+    "aiBriefStatus": "${AI_BRIEF_STATUS}"
+  },
+  "rawDataPolicy": {
+    "immutable": true,
+    "description": "Raw capture files are not modified by analysis artifacts"
+  }
+}
+EOF
+    then
+        MANIFEST_STATUS="failed"
+    else
+        chmod 600 "$MANIFEST_TMP" 2>/dev/null || true
+        mv "$MANIFEST_TMP" "$MANIFEST_FILE" 2>/dev/null || MANIFEST_STATUS="failed"
+    fi
 }
 
 TARGET_DIR="$(pwd)"
@@ -141,6 +279,7 @@ KEEP_ENV=false
 HAR_BACKEND="auto"
 DO_HAR=true
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PYTHON_CMD=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -189,11 +328,8 @@ ENV_FILE="$CAPTURES_DIR/proxy_info.env"
 LOCK_FILE="$CAPTURES_DIR/.capture.lock"
 
 mkdir -p "$CAPTURES_DIR"
-exec 9>"$LOCK_FILE"
-if ! flock -n 9; then
-    err "Another capture operation is running. Please retry."
-    exit 1
-fi
+trap release_lock EXIT
+acquire_lock_or_exit
 
 if [[ ! -f "$ENV_FILE" ]]; then
     warn "No active capture metadata found: $ENV_FILE"
@@ -272,6 +408,10 @@ fi
 
 HAR_STATUS="skipped"
 HAR_BACKEND_USED="none"
+PYTHON_STATUS="missing-tool"
+if resolve_python_cmd; then
+    PYTHON_STATUS="ok"
+fi
 
 if [[ "$DO_HAR" == "true" ]]; then
     if [[ -n "$FLOW_FILE" && -f "$FLOW_FILE" && -s "$FLOW_FILE" ]]; then
@@ -301,7 +441,7 @@ if [[ "$DO_HAR" == "true" ]]; then
                     HAR_BACKEND_USED="mitmdump"
                     if har_convert_with_mitmdump "$FLOW_FILE" "$HAR_FILE"; then
                         HAR_STATUS="ok"
-                    elif command -v python3 >/dev/null 2>&1; then
+                    elif [[ "$PYTHON_STATUS" == "ok" ]]; then
                         HAR_BACKEND_USED="python"
                         if har_convert_with_python "$FLOW_FILE" "$HAR_FILE"; then
                             HAR_STATUS="ok"
@@ -311,7 +451,7 @@ if [[ "$DO_HAR" == "true" ]]; then
                     else
                         HAR_STATUS="failed"
                     fi
-                elif command -v python3 >/dev/null 2>&1; then
+                elif [[ "$PYTHON_STATUS" == "ok" ]]; then
                     HAR_BACKEND_USED="python"
                     if har_convert_with_python "$FLOW_FILE" "$HAR_FILE"; then
                         HAR_STATUS="ok"
@@ -330,8 +470,8 @@ fi
 
 REPORT_STATUS="skipped"
 if [[ -n "$FLOW_FILE" && -f "$FLOW_FILE" && -s "$FLOW_FILE" ]]; then
-    if command -v python3 >/dev/null 2>&1 && [[ -f "$SCRIPT_DIR/flow_report.py" ]]; then
-        if python3 "$SCRIPT_DIR/flow_report.py" "$FLOW_FILE" "$INDEX_FILE" "$SUMMARY_FILE" >/dev/null 2>&1; then
+    if [[ "$PYTHON_STATUS" == "ok" && -f "$SCRIPT_DIR/flow_report.py" ]]; then
+        if "${PYTHON_CMD[@]}" "$SCRIPT_DIR/flow_report.py" "$FLOW_FILE" "$INDEX_FILE" "$SUMMARY_FILE" >/dev/null 2>&1; then
             REPORT_STATUS="ok"
         else
             REPORT_STATUS="failed"
@@ -341,23 +481,6 @@ if [[ -n "$FLOW_FILE" && -f "$FLOW_FILE" && -s "$FLOW_FILE" ]]; then
     fi
 else
     REPORT_STATUS="no-flow"
-fi
-
-AI_BRIEF_STATUS="skipped"
-if [[ "$REPORT_STATUS" == "ok" && -f "$MANIFEST_FILE" && -f "$INDEX_FILE" ]]; then
-    if command -v python3 >/dev/null 2>&1 && [[ -f "$SCRIPT_DIR/ai_brief.py" ]]; then
-        if python3 "$SCRIPT_DIR/ai_brief.py" "$MANIFEST_FILE" "$INDEX_FILE" "$AI_JSON_FILE" "$AI_MD_FILE" >/dev/null 2>&1; then
-            AI_BRIEF_STATUS="ok"
-        else
-            AI_BRIEF_STATUS="failed"
-        fi
-    else
-        AI_BRIEF_STATUS="missing-tool"
-    fi
-elif [[ "$REPORT_STATUS" == "failed" || "$REPORT_STATUS" == "missing-tool" ]]; then
-    AI_BRIEF_STATUS="blocked-by-report"
-else
-    AI_BRIEF_STATUS="no-index"
 fi
 
 STOPPED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -371,52 +494,27 @@ if [[ -n "$FLOW_FILE" && -f "$FLOW_FILE" ]] && command -v sha256sum >/dev/null 2
     FLOW_SHA256="$(sha256sum "$FLOW_FILE" 2>/dev/null | awk '{print $1}')"
 fi
 
-MANIFEST_STATUS="ok"
-MANIFEST_TMP="${MANIFEST_FILE}.tmp.$$"
-if ! cat >"$MANIFEST_TMP" <<EOF
-{
-  "schemaVersion": "1",
-  "runId": "${RUN_ID}",
-  "targetDir": "${TARGET_DIR}",
-  "capturesDir": "${CAPTURES_DIR}",
-  "startedAt": "${STARTED_AT}",
-  "stoppedAt": "${STOPPED_AT}",
-  "programMode": ${PROGRAM_MODE_JSON},
-  "listen": {
-    "host": "${LISTEN_HOST}",
-    "port": "${LISTEN_PORT}"
-  },
-  "process": {
-    "pid": "${MITM_PID}",
-    "stopStatus": "${STOP_STATUS}"
-  },
-  "artifacts": {
-    "flow": "${FLOW_FILE}",
-    "flowSha256": "${FLOW_SHA256}",
-    "har": "${HAR_FILE}",
-    "harStatus": "${HAR_STATUS}",
-    "harBackend": "${HAR_BACKEND_USED}",
-    "log": "${LOG_FILE}",
-    "manifest": "${MANIFEST_FILE}",
-    "index": "${INDEX_FILE}",
-    "summary": "${SUMMARY_FILE}",
-    "reportStatus": "${REPORT_STATUS}",
-    "aiJson": "${AI_JSON_FILE}",
-    "aiMd": "${AI_MD_FILE}",
-    "aiBriefStatus": "${AI_BRIEF_STATUS}"
-  },
-  "rawDataPolicy": {
-    "immutable": true,
-    "description": "Raw capture files are not modified by analysis artifacts"
-  }
-}
-EOF
-then
-    MANIFEST_STATUS="failed"
+AI_BRIEF_STATUS="pending"
+write_manifest_file
+
+AI_BRIEF_STATUS="skipped"
+if [[ "$REPORT_STATUS" == "ok" && "$MANIFEST_STATUS" == "ok" && -f "$MANIFEST_FILE" && -f "$INDEX_FILE" ]]; then
+    if [[ "$PYTHON_STATUS" == "ok" && -f "$SCRIPT_DIR/ai_brief.py" ]]; then
+        if "${PYTHON_CMD[@]}" "$SCRIPT_DIR/ai_brief.py" "$MANIFEST_FILE" "$INDEX_FILE" "$AI_JSON_FILE" "$AI_MD_FILE" >/dev/null 2>&1; then
+            AI_BRIEF_STATUS="ok"
+        else
+            AI_BRIEF_STATUS="failed"
+        fi
+    else
+        AI_BRIEF_STATUS="missing-tool"
+    fi
+elif [[ "$REPORT_STATUS" == "failed" || "$REPORT_STATUS" == "missing-tool" ]]; then
+    AI_BRIEF_STATUS="blocked-by-report"
 else
-    chmod 600 "$MANIFEST_TMP" 2>/dev/null || true
-    mv "$MANIFEST_TMP" "$MANIFEST_FILE" 2>/dev/null || MANIFEST_STATUS="failed"
+    AI_BRIEF_STATUS="no-index"
 fi
+
+write_manifest_file
 rm -f "$MANIFEST_TMP" 2>/dev/null || true
 
 LATEST_FLOW_LINK="$CAPTURES_DIR/latest.flow"

@@ -274,10 +274,13 @@ class WindowsBatchEntrypointTest(unittest.TestCase):
 
     def test_python_resolution_validates_real_interpreter_not_windowsapps_alias(self):
         text = BAT.read_text(encoding="utf-8").lower()
-        section = section_between(text, ":resolve_python_cmd", ":resolve_mitmdump_cmd")
+        section = section_between(text, ":resolve_python_cmd", ":resolve_mitmproxy_python_cmd")
+        mitmproxy_section = section_between(text, ":resolve_mitmproxy_python_cmd", ":resolve_mitmdump_cmd")
 
         for token in [
             ":validate_python_cmd",
+            ":validate_python_with_mitmproxy_cmd",
+            ":python_cmd_from_mitmdump",
             "windowsapps\\python.exe",
             'import sys; print(sys.executable)',
             "call :validate_python_cmd",
@@ -288,6 +291,10 @@ class WindowsBatchEntrypointTest(unittest.TestCase):
             'for /f "delims=" %%i in (\'where python 2^>nul\') do (',
             section,
         )
+        self.assertIn('if defined mitmdump_cmd (', mitmproxy_section)
+        self.assertIn('call :python_cmd_from_mitmdump "%mitmdump_cmd%"', mitmproxy_section)
+        self.assertIn('call :validate_python_with_mitmproxy_cmd', mitmproxy_section)
+        self.assertIn('import mitmproxy, sys; print(sys.executable)', text)
         self.assertIn('call :validate_python_cmd "%%i"', section)
         self.assertIn('if not errorlevel 1 set "python_cmd=%%i"', section)
         self.assertNotIn(
@@ -675,7 +682,7 @@ class WindowsBatchEntrypointTest(unittest.TestCase):
         manifest_section = section_between(text, ":write_manifest", ":bootstrap_cert_material")
 
         self.assertNotIn('call :ensure_deps || exit /b 1', section)
-        self.assertIn('call :resolve_python_cmd >nul 2>&1', section)
+        self.assertIn('call :resolve_mitmproxy_python_cmd >nul 2>&1', section)
         self.assertIn('call :resolve_mitmdump_cmd >nul 2>&1', section)
 
         for token in [

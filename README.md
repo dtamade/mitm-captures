@@ -128,8 +128,9 @@ mitmweb -r captures/latest.flow
 
 - 本地静态回归：`python3 -m unittest tests.test_windows_bat_static`
 - GitHub Actions：
-  - `ubuntu-latest` 上做 `bash -n` 与 Python 语法校验
-  - `windows-latest` 上跑 `tests/test_windows_bat_static.py`
+  - `ubuntu-latest` / `macos-latest` / `windows-latest` 都会安装 `mitmproxy` 并真实跑一遍 smoke test
+  - smoke test 会执行 `start -> 真实经过代理的 HTTP 请求 -> stop -> ai`，并校验 `latest.*` 产物全部落地
+  - 同时保留 shell / Python 语法校验与 Windows 批处理静态契约测试
 
 最小本地验证命令：
 
@@ -137,6 +138,7 @@ mitmweb -r captures/latest.flow
 python3 -m unittest tests.test_windows_bat_static
 bash -n startCaptures.sh stopCaptures.sh analyzeLatest.sh ai.sh
 python3 -m py_compile .har_addon.py flow2har.py flow_report.py ai_brief.py
+python3 tests/runtime_smoke.py --entrypoint shell
 ```
 
 ## startCaptures.sh

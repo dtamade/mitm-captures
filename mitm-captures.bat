@@ -345,7 +345,7 @@ if not "%PROGRAM_MODE%"=="1" (
 
 call :resolve_mitmdump_cmd >nul 2>&1
 if errorlevel 1 set "MITMDUMP_CMD="
-call :resolve_python_cmd >nul 2>&1
+call :resolve_mitmproxy_python_cmd >nul 2>&1
 if errorlevel 1 set "PYTHON_CMD="
 
 if "%STOP_STATUS%"=="kill-failed" set "HAR_STATUS=blocked-by-active-capture"
@@ -703,6 +703,46 @@ for /f "delims=" %%I in ('powershell -NoProfile -Command "Get-Item @(($env:LOCAL
 if defined PYTHON_CMD exit /b 0
 exit /b 1
 
+:resolve_mitmproxy_python_cmd
+set "PYTHON_CMD="
+if defined MITMDUMP_CMD (
+    call :python_cmd_from_mitmdump "%MITMDUMP_CMD%"
+    if defined PYTHON_CMD exit /b 0
+)
+for /f "delims=" %%I in ('where python 2^>nul') do (
+    if not defined PYTHON_CMD (
+        call :validate_python_with_mitmproxy_cmd "%%I"
+        if not errorlevel 1 set "PYTHON_CMD=%%I"
+    )
+)
+if defined PYTHON_CMD exit /b 0
+for /f "delims=" %%I in ('py -3 -c "import sys; print(sys.executable)" 2^>nul') do (
+    if not defined PYTHON_CMD (
+        call :validate_python_with_mitmproxy_cmd "%%I"
+        if not errorlevel 1 set "PYTHON_CMD=%%I"
+    )
+)
+if defined PYTHON_CMD exit /b 0
+for /f "delims=" %%I in ('powershell -NoProfile -Command "Get-Item @(($env:LOCALAPPDATA + '\Programs\Python\Python*\python.exe'), ($env:LOCALAPPDATA + '\Microsoft\WindowsApps\python.exe'), (${env:ProgramFiles} + '\Python*\python.exe'), (${env:ProgramFiles(x86)} + '\Python*\python.exe')) -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }"') do (
+    if not defined PYTHON_CMD (
+        call :validate_python_with_mitmproxy_cmd "%%I"
+        if not errorlevel 1 set "PYTHON_CMD=%%I"
+    )
+)
+if defined PYTHON_CMD exit /b 0
+exit /b 1
+
+:python_cmd_from_mitmdump
+set "MITMDUMP_PYTHON_CANDIDATE="
+for %%I in ("%~1") do (
+    if exist "%%~dpI..\python.exe" set "MITMDUMP_PYTHON_CANDIDATE=%%~dpI..\python.exe"
+)
+if not defined MITMDUMP_PYTHON_CANDIDATE exit /b 1
+call :validate_python_with_mitmproxy_cmd "%MITMDUMP_PYTHON_CANDIDATE%"
+if errorlevel 1 exit /b 1
+set "PYTHON_CMD=%MITMDUMP_PYTHON_CANDIDATE%"
+exit /b 0
+
 :resolve_mitmdump_cmd
 set "MITMDUMP_CMD="
 for /f "delims=" %%I in ('where mitmdump 2^>nul') do (
@@ -743,6 +783,22 @@ set "PYTHON_VALIDATE_CMD=%~1"
 set "PYTHON_VALIDATE_OUT=%TEMP%\mitm-captures-python-validate-%RANDOM%%RANDOM%.txt"
 set "PYTHON_VALIDATE_RESULT="
 "%PYTHON_VALIDATE_CMD%" -c "import sys; print(sys.executable)" > "%PYTHON_VALIDATE_OUT%" 2>nul
+if errorlevel 1 (
+    del /q "%PYTHON_VALIDATE_OUT%" >nul 2>&1
+    exit /b 1
+)
+set /p PYTHON_VALIDATE_RESULT=<"%PYTHON_VALIDATE_OUT%"
+del /q "%PYTHON_VALIDATE_OUT%" >nul 2>&1
+if not defined PYTHON_VALIDATE_RESULT exit /b 1
+echo(%PYTHON_VALIDATE_RESULT%| findstr /I /C:"\Microsoft\WindowsApps\python.exe" >nul
+if not errorlevel 1 exit /b 1
+exit /b 0
+
+:validate_python_with_mitmproxy_cmd
+set "PYTHON_VALIDATE_CMD=%~1"
+set "PYTHON_VALIDATE_OUT=%TEMP%\mitm-captures-python-mitmproxy-validate-%RANDOM%%RANDOM%.txt"
+set "PYTHON_VALIDATE_RESULT="
+"%PYTHON_VALIDATE_CMD%" -c "import mitmproxy, sys; print(sys.executable)" > "%PYTHON_VALIDATE_OUT%" 2>nul
 if errorlevel 1 (
     del /q "%PYTHON_VALIDATE_OUT%" >nul 2>&1
     exit /b 1
