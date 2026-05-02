@@ -310,8 +310,8 @@ class WindowsBatchEntrypointTest(unittest.TestCase):
     def test_load_state_escapes_single_percent_and_callers_fail_closed(self):
         text = BAT.read_text(encoding="utf-8").lower()
 
-        self.assertIn("replace('%', '%%')", text)
-        self.assertNotIn("replace('%%', '%%%%')", text)
+        self.assertIn('replace(\\"%\\", \\"%%\\")', text)
+        self.assertNotIn('replace(\\"%%\\", \\"%%%%\\")', text)
         self.assertGreaterEqual(text.count("call :load_state || exit /b 1"), 3)
 
     def test_load_state_rejects_unexpected_keys_before_importing_generated_cmd(self):
@@ -319,20 +319,21 @@ class WindowsBatchEntrypointTest(unittest.TestCase):
         load_state_section = section_between(text, ":load_state", ":reset_loaded_state_variables")
 
         for token in [
-            "$allowedstatekeys = @{",
-            "'mitm_pid'",
-            "'program_mode'",
-            "'flow_file'",
-            "'winhttp_snapshot_status'",
-            "$key = $matches.k",
+            "$allowedstatekeys = @{}",
+            '\\"mitm_pid\\"',
+            '\\"program_mode\\"',
+            '\\"flow_file\\"',
+            '\\"winhttp_snapshot_status\\"',
+            '$idx = $line.indexof(\\"=\\")',
+            "$key = $line.substring(0, $idx)",
             "containskey($key)",
-            "'unexpected state key: ' + $key",
-            '\'set ""{0}={1}""\' -f $key, $value',
+            "unexpected state key: ",
+            '\\"set \\" + [char]34 + $key + \\"=\\" + $value + [char]34',
         ]:
             self.assertIn(token, load_state_section)
 
         self.assertNotIn(
-            '\'set ""{0}={1}""\' -f $matches.k, $value',
+            "$key = $matches.k",
             load_state_section,
         )
 
