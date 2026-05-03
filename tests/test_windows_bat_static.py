@@ -94,6 +94,13 @@ class WindowsBatchEntrypointTest(unittest.TestCase):
         ]:
             self.assertIn(token, text)
 
+    def test_cert_command_forces_noninteractive_store_install(self):
+        text = BAT.read_text(encoding="utf-8").lower()
+        cert_section = section_between(text, ":cmd_cert", ":run_with_capture_lock")
+
+        self.assertIn('certutil -user -f -addstore root "%mitm_cert%"', cert_section)
+        self.assertNotIn('certutil -user -addstore root "%mitm_cert%"', cert_section)
+
     def test_batch_entrypoint_validates_target_dir_and_serializes_capture_commands(self):
         text = BAT.read_text(encoding="utf-8").lower()
         prefix = text[:text.index("\n:usage\n")]

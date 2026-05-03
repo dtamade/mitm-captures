@@ -530,7 +530,7 @@ if not exist "%MITM_CERT%" (
     >&2 echo [ERROR] mitmproxy certificate not found: %MITM_CERT%
     exit /b 1
 )
-certutil -user -addstore Root "%MITM_CERT%"
+certutil -user -f -addstore Root "%MITM_CERT%"
 if errorlevel 1 exit /b 1
 echo [OK] mitmproxy CA certificate installed for the current user.
 exit /b 0
