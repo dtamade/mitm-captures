@@ -49,6 +49,9 @@ class SmokeRequestHandler(http.server.BaseHTTPRequestHandler):
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run a real mitm-captures smoke test.")
     parser.add_argument("--entrypoint", choices=("shell", "windows"), required=True)
+    parser.add_argument("--proxy-mode", choices=("program", "system"), default="program")
+    parser.add_argument("--exercise-install", action="store_true")
+    parser.add_argument("--exercise-cert", action="store_true")
     parser.add_argument("--repo-root", default=str(Path(__file__).resolve().parent.parent))
     return parser.parse_args()
 
@@ -247,22 +250,165 @@ def read_json(path: Path) -> dict[str, object]:
     return json.loads(read_text(path))
 
 
+def normalize_gsettings_value(value: str) -> str:
+    text = value.strip()
+    if text.startswith("'") and text.endswith("'"):
+        return text[1:-1]
+    return text
+
+
+def read_gsettings(schema: str, key: str) -> str:
+    completed = subprocess.run(
+        ["gsettings", "get", schema, key],
+        text=True,
+        capture_output=True,
+        errors="replace",
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise AssertionError(
+            f"gsettings get failed for {schema} {key}: {completed.stderr or completed.stdout}"
+        )
+    return normalize_gsettings_value(completed.stdout)
+
+
+def read_gnome_proxy_state() -> dict[str, str]:
+    return {
+        "mode": read_gsettings("org.gnome.system.proxy", "mode"),
+        "http_host": read_gsettings("org.gnome.system.proxy.http", "host"),
+        "http_port": read_gsettings("org.gnome.system.proxy.http", "port"),
+        "https_host": read_gsettings("org.gnome.system.proxy.https", "host"),
+        "https_port": read_gsettings("org.gnome.system.proxy.https", "port"),
+    }
+
+
+def assert_gnome_proxy_applied(proxy_port: int) -> None:
+    state = read_gnome_proxy_state()
+    if state["mode"] != "manual":
+        raise AssertionError(f"GNOME proxy mode was not set to manual: {state}")
+    if state["http_host"] != "127.0.0.1" or state["https_host"] != "127.0.0.1":
+        raise AssertionError(f"GNOME proxy host was not applied: {state}")
+    if state["http_port"] != str(proxy_port) or state["https_port"] != str(proxy_port):
+        raise AssertionError(f"GNOME proxy port was not applied: {state}")
+
+
+def assert_gnome_proxy_restored(baseline: dict[str, str]) -> None:
+    current = read_gnome_proxy_state()
+    if current != baseline:
+        raise AssertionError(f"GNOME proxy state was not restored: baseline={baseline!r} current={current!r}")
+
+
+def run_powershell(script: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["powershell.exe", "-NoProfile", "-Command", script],
+        text=True,
+        capture_output=True,
+        errors="replace",
+        check=False,
+    )
+
+
+def read_windows_proxy_reg_value(name: str) -> str | None:
+    script = (
+        "$path = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'; "
+        f"try {{ $value = Get-ItemPropertyValue -LiteralPath $path -Name '{name}' -ErrorAction Stop; "
+        "[Console]::Out.Write([string]$value) } "
+        "catch [System.Management.Automation.ItemNotFoundException] { exit 3 } "
+        "catch [System.Management.Automation.PSArgumentException] { exit 3 }"
+    )
+    completed = run_powershell(script)
+    if completed.returncode == 0:
+        return completed.stdout.strip()
+    if completed.returncode == 3:
+        return None
+    raise AssertionError(f"failed to read Windows proxy registry value {name}: {completed.stderr or completed.stdout}")
+
+
+def read_windows_winhttp_dump() -> str:
+    completed = subprocess.run(
+        ["netsh", "winhttp", "dump"],
+        text=True,
+        capture_output=True,
+        errors="replace",
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise AssertionError(f"netsh winhttp dump failed: {completed.stderr or completed.stdout}")
+    return completed.stdout.replace("\r\n", "\n").strip()
+
+
+def read_windows_proxy_state() -> dict[str, str | None]:
+    return {
+        "proxy_enable": read_windows_proxy_reg_value("ProxyEnable"),
+        "proxy_server": read_windows_proxy_reg_value("ProxyServer"),
+        "proxy_override": read_windows_proxy_reg_value("ProxyOverride"),
+        "winhttp_dump": read_windows_winhttp_dump(),
+    }
+
+
+def assert_windows_proxy_applied(proxy_port: int) -> None:
+    state = read_windows_proxy_state()
+    expected_server = f"127.0.0.1:{proxy_port}"
+    if state["proxy_enable"] != "1":
+        raise AssertionError(f"Windows ProxyEnable was not enabled: {state}")
+    if state["proxy_server"] != expected_server:
+        raise AssertionError(f"Windows ProxyServer was not applied: {state}")
+    override = state["proxy_override"] or ""
+    if "localhost" not in override or "127.0.0.1" not in override:
+        raise AssertionError(f"Windows ProxyOverride was not applied: {state}")
+    winhttp_dump = state["winhttp_dump"] or ""
+    if expected_server not in winhttp_dump:
+        raise AssertionError(f"WinHTTP proxy was not applied: {state}")
+
+
+def assert_windows_proxy_restored(baseline: dict[str, str | None]) -> None:
+    current = read_windows_proxy_state()
+    if current != baseline:
+        raise AssertionError(f"Windows proxy state was not restored: baseline={baseline!r} current={current!r}")
+
+
+def assert_windows_cert_installed() -> None:
+    cert_path = Path(os.environ["USERPROFILE"]) / ".mitmproxy" / "mitmproxy-ca-cert.cer"
+    if not cert_path.exists():
+        raise AssertionError(f"mitmproxy CA certificate file was not created: {cert_path}")
+
+    completed = subprocess.run(
+        ["certutil", "-user", "-store", "Root"],
+        text=True,
+        capture_output=True,
+        errors="replace",
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise AssertionError(f"certutil -user -store Root failed: {completed.stderr or completed.stdout}")
+    if "mitmproxy" not in completed.stdout.lower():
+        raise AssertionError("mitmproxy certificate was not visible in the current user Root store")
+
+
 def announce_step(step: str) -> None:
     print(f"[SMOKE] {step}", flush=True)
 
 
-def shell_commands(repo_root: Path, target_dir: Path, proxy_port: int) -> dict[str, list[str]]:
-    return {
-        "start": [
-            "bash",
-            str(repo_root / "startCaptures.sh"),
-            "--program",
+def shell_commands(repo_root: Path, target_dir: Path, proxy_port: int, proxy_mode: str) -> dict[str, list[str]]:
+    start_args = [
+        "bash",
+        str(repo_root / "startCaptures.sh"),
+    ]
+    if proxy_mode == "program":
+        start_args.append("--program")
+    start_args.extend(
+        [
             "--dir",
             str(target_dir),
             "--host",
             "127.0.0.1",
             "--port",
             str(proxy_port),
+        ]
+    )
+    return {
+        "start": [
+            *start_args,
         ],
         "stop": [
             "bash",
@@ -280,29 +426,43 @@ def shell_commands(repo_root: Path, target_dir: Path, proxy_port: int) -> dict[s
     }
 
 
-def windows_commands(repo_root: Path, target_dir: Path, proxy_port: int) -> dict[str, list[str]]:
+def windows_commands(
+    repo_root: Path,
+    target_dir: Path,
+    proxy_port: int,
+    proxy_mode: str,
+    *,
+    exercise_install: bool,
+    exercise_cert: bool,
+) -> dict[str, list[str]]:
     batch = repo_root / "mitm-captures.bat"
-    return {
-        "start": build_windows_cmd(
-            batch,
-            [
-                "start",
-                "--program",
-                "--dir",
-                str(target_dir),
-                "--host",
-                "127.0.0.1",
-                "--port",
-                str(proxy_port),
-            ],
-        ),
+    start_args = ["start"]
+    if proxy_mode == "program":
+        start_args.append("--program")
+    start_args.extend(
+        [
+            "--dir",
+            str(target_dir),
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(proxy_port),
+        ]
+    )
+    commands = {
+        "start": build_windows_cmd(batch, start_args),
         "status": build_windows_cmd(batch, ["status", "--dir", str(target_dir)]),
         "stop": build_windows_cmd(batch, ["stop", "--dir", str(target_dir)]),
         "ai": build_windows_cmd(batch, ["ai", "--dir", str(target_dir), "--stdout"]),
     }
+    if exercise_install:
+        commands["install"] = build_windows_cmd(batch, ["install", "--dir", str(target_dir)])
+    if exercise_cert:
+        commands["cert"] = build_windows_cmd(batch, ["cert"])
+    return commands
 
 
-def assert_artifacts(target_dir: Path, bundle_output: str) -> None:
+def assert_artifacts(target_dir: Path, bundle_output: str, *, expected_program_mode: bool) -> None:
     captures_dir = target_dir / "captures"
     required_files = [
         captures_dir / "latest.flow",
@@ -325,8 +485,10 @@ def assert_artifacts(target_dir: Path, bundle_output: str) -> None:
         raise AssertionError("proxy_info.env should be removed after a successful stop")
 
     manifest = read_json(captures_dir / "latest.manifest.json")
-    if manifest.get("programMode") is not True:
-        raise AssertionError(f"manifest should record programMode=true: {manifest}")
+    if manifest.get("programMode") is not expected_program_mode:
+        raise AssertionError(
+            f"manifest should record programMode={expected_program_mode!r}: {manifest}"
+        )
     if not manifest.get("stoppedAt"):
         raise AssertionError(f"manifest should record stoppedAt: {manifest}")
     raw_policy = manifest.get("rawDataPolicy")
@@ -359,7 +521,7 @@ def assert_artifacts(target_dir: Path, bundle_output: str) -> None:
 def main() -> int:
     args = parse_args()
     repo_root = Path(args.repo_root).resolve()
-    command_timeout = 180 if args.entrypoint == "shell" else 90
+    command_timeout = 180 if args.entrypoint == "shell" else 120
     proxy_port = pick_free_port()
     server = SmokeHTTPServer(("127.0.0.1", 0))
     server_port = int(server.server_address[1])
@@ -367,25 +529,66 @@ def main() -> int:
     server_thread.start()
 
     commands = (
-        shell_commands(repo_root, Path("unused"), proxy_port)
+        shell_commands(repo_root, Path("unused"), proxy_port, args.proxy_mode)
         if args.entrypoint == "shell"
-        else windows_commands(repo_root, Path("unused"), proxy_port)
+        else windows_commands(
+            repo_root,
+            Path("unused"),
+            proxy_port,
+            args.proxy_mode,
+            exercise_install=args.exercise_install,
+            exercise_cert=args.exercise_cert,
+        )
     )
 
     started = False
     with tempfile.TemporaryDirectory(prefix="mitm-captures-smoke-", dir=repo_root, ignore_cleanup_errors=True) as temp_dir:
         target_dir = Path(temp_dir).resolve()
         commands = (
-            shell_commands(repo_root, target_dir, proxy_port)
+            shell_commands(repo_root, target_dir, proxy_port, args.proxy_mode)
             if args.entrypoint == "shell"
-            else windows_commands(repo_root, target_dir, proxy_port)
+            else windows_commands(
+                repo_root,
+                target_dir,
+                proxy_port,
+                args.proxy_mode,
+                exercise_install=args.exercise_install,
+                exercise_cert=args.exercise_cert,
+            )
         )
+        linux_proxy_baseline: dict[str, str] | None = None
+        windows_proxy_baseline: dict[str, str | None] | None = None
         try:
+            if args.proxy_mode == "system":
+                if args.entrypoint == "shell":
+                    linux_proxy_baseline = read_gnome_proxy_state()
+                else:
+                    windows_proxy_baseline = read_windows_proxy_state()
+
+            if args.exercise_install:
+                announce_step("install")
+                install_result = run_checked(commands["install"], cwd=repo_root, timeout=command_timeout)
+                if "dependencies are installed or already available" not in install_result.stdout.lower():
+                    raise AssertionError("install command did not confirm dependency availability")
+
+            if args.exercise_cert:
+                announce_step("cert")
+                cert_result = run_checked(commands["cert"], cwd=repo_root, timeout=command_timeout)
+                if "certificate installed" not in cert_result.stdout.lower():
+                    raise AssertionError("cert command did not confirm certificate installation")
+                assert_windows_cert_installed()
+
             announce_step("start")
             start_result = run_checked(commands["start"], cwd=repo_root, timeout=command_timeout)
             if "mitmproxy capture started" not in start_result.stdout.lower():
                 raise AssertionError("start command did not report a started capture")
             started = True
+
+            if args.proxy_mode == "system":
+                if args.entrypoint == "shell":
+                    assert_gnome_proxy_applied(proxy_port)
+                else:
+                    assert_windows_proxy_applied(proxy_port)
 
             if args.entrypoint == "windows":
                 announce_step("status")
@@ -411,7 +614,21 @@ def main() -> int:
             if EXPECTED_PATH not in server.received_paths:
                 raise AssertionError(f"upstream server did not observe expected path: {server.received_paths!r}")
 
-            assert_artifacts(target_dir, bundle_result.stdout)
+            if args.proxy_mode == "system":
+                if args.entrypoint == "shell":
+                    if linux_proxy_baseline is None:
+                        raise AssertionError("missing GNOME proxy baseline")
+                    assert_gnome_proxy_restored(linux_proxy_baseline)
+                else:
+                    if windows_proxy_baseline is None:
+                        raise AssertionError("missing Windows proxy baseline")
+                    assert_windows_proxy_restored(windows_proxy_baseline)
+
+            assert_artifacts(
+                target_dir,
+                bundle_result.stdout,
+                expected_program_mode=(args.proxy_mode == "program"),
+            )
         finally:
             if started:
                 try:

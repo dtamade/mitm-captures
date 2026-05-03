@@ -13,10 +13,11 @@
 提交前至少执行：
 
 ```bash
-python3 -m unittest tests.test_windows_bat_static
+python3 -m unittest discover -s tests
 bash -n startCaptures.sh stopCaptures.sh analyzeLatest.sh ai.sh
-python3 -m py_compile .har_addon.py flow2har.py flow_report.py ai_brief.py state_import.py
-python3 tests/runtime_smoke.py --entrypoint shell
+python3 -m py_compile .har_addon.py flow2har.py flow_report.py ai_brief.py state_import.py tests/runtime_smoke.py
+python3 tests/runtime_smoke.py --entrypoint shell --proxy-mode program
+TMP_HOME="$(mktemp -d)" && mkdir -p "$TMP_HOME/.config" "$TMP_HOME/.local/share" && XDG_CONFIG_HOME="$TMP_HOME/.config" XDG_DATA_HOME="$TMP_HOME/.local/share" dbus-run-session -- python3 tests/runtime_smoke.py --entrypoint shell --proxy-mode system
 ```
 
 Windows 贡献者如果主要修改 `mitm-captures.bat`，也应确保上述 Python 静态测试通过。

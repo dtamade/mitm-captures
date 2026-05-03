@@ -135,16 +135,18 @@ mitmweb -r captures/latest.flow
 - 本地静态回归：`python3 -m unittest tests.test_windows_bat_static`
 - GitHub Actions：
   - `ubuntu-latest` / `macos-latest` / `windows-latest` 都会安装 `mitmproxy` 并真实跑一遍 smoke test
+  - Linux 会覆盖 `program` / `system` 两种代理模式，Windows 会覆盖 `program` / `system` 并额外真实执行 `install` / `cert`
   - smoke test 会执行 `start -> 真实经过代理的 HTTP 请求 -> stop -> ai`，并校验 `latest.*` 产物全部落地
   - 同时保留 shell / Python 语法校验与 Windows 批处理静态契约测试
 
 最小本地验证命令：
 
 ```bash
-python3 -m unittest tests.test_windows_bat_static
+python3 -m unittest discover -s tests
 bash -n startCaptures.sh stopCaptures.sh analyzeLatest.sh ai.sh
-python3 -m py_compile .har_addon.py flow2har.py flow_report.py ai_brief.py
-python3 tests/runtime_smoke.py --entrypoint shell
+python3 -m py_compile .har_addon.py flow2har.py flow_report.py ai_brief.py state_import.py tests/runtime_smoke.py
+python3 tests/runtime_smoke.py --entrypoint shell --proxy-mode program
+TMP_HOME="$(mktemp -d)" && mkdir -p "$TMP_HOME/.config" "$TMP_HOME/.local/share" && XDG_CONFIG_HOME="$TMP_HOME/.config" XDG_DATA_HOME="$TMP_HOME/.local/share" dbus-run-session -- python3 tests/runtime_smoke.py --entrypoint shell --proxy-mode system
 ```
 
 ## startCaptures.sh

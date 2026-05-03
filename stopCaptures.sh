@@ -109,15 +109,26 @@ restore_gnome_proxy() {
         effective_mode="none"
     fi
 
-    if ! gsettings set org.gnome.system.proxy mode "$effective_mode" >/dev/null 2>&1; then
+    if ! gsettings set org.gnome.system.proxy.http host "$http_host" >/dev/null 2>&1; then
         return 1
     fi
-
-    if [[ "$effective_mode" == "manual" ]]; then
-        [[ -n "$http_host" ]] && gsettings set org.gnome.system.proxy.http host "$http_host" >/dev/null 2>&1 || true
-        [[ "$http_port" =~ ^[0-9]+$ ]] && gsettings set org.gnome.system.proxy.http port "$http_port" >/dev/null 2>&1 || true
-        [[ -n "$https_host" ]] && gsettings set org.gnome.system.proxy.https host "$https_host" >/dev/null 2>&1 || true
-        [[ "$https_port" =~ ^[0-9]+$ ]] && gsettings set org.gnome.system.proxy.https port "$https_port" >/dev/null 2>&1 || true
+    if ! [[ "$http_port" =~ ^[0-9]+$ ]]; then
+        return 1
+    fi
+    if ! gsettings set org.gnome.system.proxy.http port "$http_port" >/dev/null 2>&1; then
+        return 1
+    fi
+    if ! gsettings set org.gnome.system.proxy.https host "$https_host" >/dev/null 2>&1; then
+        return 1
+    fi
+    if ! [[ "$https_port" =~ ^[0-9]+$ ]]; then
+        return 1
+    fi
+    if ! gsettings set org.gnome.system.proxy.https port "$https_port" >/dev/null 2>&1; then
+        return 1
+    fi
+    if ! gsettings set org.gnome.system.proxy mode "$effective_mode" >/dev/null 2>&1; then
+        return 1
     fi
 
     return 0

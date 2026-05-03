@@ -17,10 +17,19 @@ jobs:
         include:
           - os: ubuntu-latest
             entrypoint: shell
+            smoke_run: python tests/runtime_smoke.py --entrypoint shell --proxy-mode program
+          - os: ubuntu-latest
+            entrypoint: shell
+            smoke_run: TMP_HOME="$(mktemp -d)" && mkdir -p "$TMP_HOME/.config" "$TMP_HOME/.local/share" && XDG_CONFIG_HOME="$TMP_HOME/.config" XDG_DATA_HOME="$TMP_HOME/.local/share" dbus-run-session -- python tests/runtime_smoke.py --entrypoint shell --proxy-mode system
           - os: macos-latest
             entrypoint: shell
+            smoke_run: python tests/runtime_smoke.py --entrypoint shell --proxy-mode program
           - os: windows-latest
             entrypoint: windows
+            smoke_run: python tests/runtime_smoke.py --entrypoint windows --proxy-mode program
+          - os: windows-latest
+            entrypoint: windows
+            smoke_run: python tests/runtime_smoke.py --entrypoint windows --proxy-mode system --exercise-install --exercise-cert
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
@@ -56,4 +65,4 @@ jobs:
 
       - name: Run runtime smoke test
         timeout-minutes: 5
-        run: python tests/runtime_smoke.py --entrypoint ${{ matrix.entrypoint }}
+        run: ${{ matrix.smoke_run }}
