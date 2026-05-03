@@ -525,12 +525,14 @@ exit /b 0
 :cmd_cert
 call :ensure_deps || exit /b 1
 set "MITM_CERT=%USERPROFILE%\.mitmproxy\mitmproxy-ca-cert.cer"
+echo [INFO] Ensuring mitmproxy CA material exists...
 if not exist "%MITM_CERT%" call :bootstrap_cert_material || exit /b 1
 if not exist "%MITM_CERT%" (
     >&2 echo [ERROR] mitmproxy certificate not found: %MITM_CERT%
     exit /b 1
 )
-powershell -NoProfile -Command "$ErrorActionPreference = 'Stop'; $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($env:MITM_CERT); $store = New-Object System.Security.Cryptography.X509Certificates.X509Store('Root', 'CurrentUser'); $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite); $store.Add($cert); $store.Close()"
+echo [INFO] Importing mitmproxy CA certificate into CurrentUser Root...
+powershell -NoProfile -Command "$ErrorActionPreference = 'Stop'; Import-Module Microsoft.PowerShell.Security; Import-Certificate -FilePath $env:MITM_CERT -CertStoreLocation 'Microsoft.PowerShell.Security\Certificate::CurrentUser\Root' | Out-Null"
 if errorlevel 1 exit /b 1
 echo [OK] mitmproxy CA certificate installed for the current user.
 exit /b 0
