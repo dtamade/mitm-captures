@@ -530,7 +530,7 @@ if not exist "%MITM_CERT%" (
     >&2 echo [ERROR] mitmproxy certificate not found: %MITM_CERT%
     exit /b 1
 )
-certutil -user -f -addstore Root "%MITM_CERT%"
+powershell -NoProfile -Command "$ErrorActionPreference = 'Stop'; Import-Certificate -FilePath $env:MITM_CERT -CertStoreLocation 'Cert:\CurrentUser\Root' | Out-Null"
 if errorlevel 1 exit /b 1
 echo [OK] mitmproxy CA certificate installed for the current user.
 exit /b 0
