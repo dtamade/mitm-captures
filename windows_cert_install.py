@@ -11,6 +11,14 @@ import subprocess
 import sys
 
 DEFAULT_TIMEOUT_SECONDS = 20
+X509_ASN_ENCODING = 0x00000001
+PKCS_7_ASN_ENCODING = 0x00010000
+CERT_STORE_PROV_SYSTEM_REGISTRY_W = 13
+CERT_SYSTEM_STORE_LOCATION_SHIFT = 16
+CERT_SYSTEM_STORE_CURRENT_USER_ID = 1
+CERT_SYSTEM_STORE_CURRENT_USER = CERT_SYSTEM_STORE_CURRENT_USER_ID << CERT_SYSTEM_STORE_LOCATION_SHIFT
+CERT_SYSTEM_STORE_UNPROTECTED_FLAG = 0x40000000
+CERT_STORE_ADD_REPLACE_EXISTING = 3
 
 
 def load_certificate_bytes(cert_path: Path) -> bytes:
@@ -28,13 +36,56 @@ def add_certificate_to_current_user_root(cert_bytes: bytes) -> None:
         raise RuntimeError("certificate file is empty")
 
     crypt32 = ctypes.WinDLL("crypt32", use_last_error=True)
-    add_cert = crypt32.CertAddEncodedCertificateToSystemStoreA
-    add_cert.argtypes = [ctypes.c_char_p, ctypes.POINTER(ctypes.c_ubyte), wintypes.DWORD]
-    add_cert.restype = wintypes.BOOL
+    cert_open_store = crypt32.CertOpenStore
+    cert_open_store.argtypes = [
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+    ]
+    cert_open_store.restype = ctypes.c_void_p
+
+    cert_add = crypt32.CertAddEncodedCertificateToStore
+    cert_add.argtypes = [
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        ctypes.POINTER(ctypes.c_ubyte),
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.POINTER(ctypes.c_void_p),
+    ]
+    cert_add.restype = wintypes.BOOL
+
+    cert_close_store = crypt32.CertCloseStore
+    cert_close_store.argtypes = [ctypes.c_void_p, wintypes.DWORD]
+    cert_close_store.restype = wintypes.BOOL
+
+    store_name = ctypes.create_unicode_buffer("Root")
+    store = cert_open_store(
+        ctypes.c_void_p(CERT_STORE_PROV_SYSTEM_REGISTRY_W),
+        0,
+        None,
+        CERT_SYSTEM_STORE_CURRENT_USER | CERT_SYSTEM_STORE_UNPROTECTED_FLAG,
+        ctypes.cast(store_name, ctypes.c_void_p),
+    )
+    if not store:
+        raise ctypes.WinError(ctypes.get_last_error())
 
     cert_buffer = (ctypes.c_ubyte * len(cert_bytes)).from_buffer_copy(cert_bytes)
-    if not add_cert(b"ROOT", cert_buffer, len(cert_bytes)):
-        raise ctypes.WinError(ctypes.get_last_error())
+    cert_context = ctypes.c_void_p()
+    try:
+        if not cert_add(
+            store,
+            X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
+            cert_buffer,
+            len(cert_bytes),
+            CERT_STORE_ADD_REPLACE_EXISTING,
+            ctypes.byref(cert_context),
+        ):
+            raise ctypes.WinError(ctypes.get_last_error())
+    finally:
+        cert_close_store(store, 0)
 
 
 def find_certmgr_executable() -> Path | None:
@@ -132,22 +183,22 @@ def run_strategy_subprocess(strategy: str, cert_path: Path) -> tuple[int, str, s
 
 
 def run_single_strategy(strategy: str, cert_path: Path) -> None:
+    if strategy == "crypt32-openstore":
+        cert_bytes = load_certificate_bytes(cert_path)
+        add_certificate_to_current_user_root(cert_bytes)
+        return
     if strategy == "certmgr":
         install_with_certmgr(cert_path)
         return
     if strategy == "pwsh-import":
         install_with_pwsh_import(cert_path)
         return
-    if strategy == "crypt32":
-        cert_bytes = load_certificate_bytes(cert_path)
-        add_certificate_to_current_user_root(cert_bytes)
-        return
     raise RuntimeError(f"unknown strategy: {strategy}")
 
 
 def install_certificate(cert_path: Path) -> None:
     errors: list[str] = []
-    for strategy in ("certmgr", "pwsh-import", "crypt32"):
+    for strategy in ("crypt32-openstore", "certmgr", "pwsh-import"):
         print(f"[INFO] Trying certificate import strategy: {strategy}", flush=True)
         try:
             returncode, stdout, stderr = run_strategy_subprocess(strategy, cert_path)
@@ -167,7 +218,7 @@ def install_certificate(cert_path: Path) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Import a certificate into the Windows current-user Root store.")
-    parser.add_argument("--strategy", choices=("certmgr", "pwsh-import", "crypt32"))
+    parser.add_argument("--strategy", choices=("crypt32-openstore", "certmgr", "pwsh-import"))
     parser.add_argument("certificate", help="Path to a DER or PEM encoded certificate file.")
     args = parser.parse_args(argv)
 

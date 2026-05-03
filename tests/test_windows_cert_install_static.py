@@ -11,8 +11,11 @@ class WindowsCertInstallHelperTest(unittest.TestCase):
         text = HELPER.read_text(encoding="utf-8")
 
         for token in [
-            "CertAddEncodedCertificateToSystemStoreA",
-            'b"ROOT"',
+            "CertOpenStore",
+            "CertAddEncodedCertificateToStore",
+            "CERT_SYSTEM_STORE_UNPROTECTED_FLAG",
+            "CERT_STORE_PROV_SYSTEM_REGISTRY_W",
+            "CERT_STORE_ADD_REPLACE_EXISTING",
             "ssl.PEM_cert_to_DER_cert",
             'sys.platform != "win32"',
             "CertMgr.exe",
