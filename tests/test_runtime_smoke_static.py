@@ -38,6 +38,9 @@ class RuntimeSmokeStaticTest(unittest.TestCase):
         self.assertIn("smoke_run:", text)
         self.assertIn("--proxy-mode system", text)
         self.assertIn("--exercise-install --exercise-cert", text)
+        self.assertIn("Install GNOME proxy runtime dependencies", text)
+        self.assertIn("gsettings-desktop-schemas", text)
+        self.assertIn("dconf-gsettings-backend", text)
         self.assertIn("dbus-run-session -- python tests/runtime_smoke.py --entrypoint shell --proxy-mode system", text)
 
     def test_shell_proxy_restore_replays_saved_fields_even_outside_manual_mode(self):

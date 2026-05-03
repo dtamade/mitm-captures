@@ -43,6 +43,12 @@ jobs:
       - name: Install mitmproxy
         run: python -m pip install --upgrade pip && python -m pip install mitmproxy==12.2.1
 
+      - name: Install GNOME proxy runtime dependencies
+        if: matrix.os == 'ubuntu-latest' && contains(matrix.smoke_run, '--proxy-mode system')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gsettings-desktop-schemas dconf-gsettings-backend
+
       - name: Validate shell syntax
         if: matrix.entrypoint == 'shell'
         run: |
