@@ -15,6 +15,10 @@ class WindowsCertInstallHelperTest(unittest.TestCase):
             'b"ROOT"',
             "ssl.PEM_cert_to_DER_cert",
             'sys.platform != "win32"',
+            "CertMgr.exe",
+            "Windows Kits/10/bin",
+            "--strategy",
+            "Trying certificate import strategy",
         ]:
             self.assertIn(token, text)
 
