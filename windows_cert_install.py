@@ -82,6 +82,43 @@ def install_with_certmgr(cert_path: Path) -> None:
         raise RuntimeError(f"CertMgr.exe failed with exit code {completed.returncode}")
 
 
+def find_pwsh_executable() -> Path | None:
+    direct = shutil.which("pwsh.exe") or shutil.which("pwsh")
+    if not direct:
+        return None
+    return Path(direct)
+
+
+def install_with_pwsh_import(cert_path: Path) -> None:
+    pwsh = find_pwsh_executable()
+    if pwsh is None:
+        raise RuntimeError("pwsh.exe not found")
+
+    print(f"[INFO] Using pwsh executable: {pwsh}", flush=True)
+    env = dict(os.environ)
+    env["MITM_CERT"] = str(cert_path)
+    completed = subprocess.run(
+        [
+            str(pwsh),
+            "-NoProfile",
+            "-Command",
+            "$ErrorActionPreference = 'Stop'; Import-Certificate -FilePath $env:MITM_CERT -CertStoreLocation 'Cert:\\CurrentUser\\Root' | Out-Null",
+        ],
+        text=True,
+        capture_output=True,
+        errors="replace",
+        timeout=DEFAULT_TIMEOUT_SECONDS,
+        check=False,
+        env=env,
+    )
+    if completed.stdout:
+        print(completed.stdout, end="")
+    if completed.stderr:
+        print(completed.stderr, end="", file=sys.stderr)
+    if completed.returncode != 0:
+        raise RuntimeError(f"pwsh Import-Certificate failed with exit code {completed.returncode}")
+
+
 def run_strategy_subprocess(strategy: str, cert_path: Path) -> tuple[int, str, str]:
     completed = subprocess.run(
         [sys.executable, __file__, "--strategy", strategy, str(cert_path)],
@@ -98,6 +135,9 @@ def run_single_strategy(strategy: str, cert_path: Path) -> None:
     if strategy == "certmgr":
         install_with_certmgr(cert_path)
         return
+    if strategy == "pwsh-import":
+        install_with_pwsh_import(cert_path)
+        return
     if strategy == "crypt32":
         cert_bytes = load_certificate_bytes(cert_path)
         add_certificate_to_current_user_root(cert_bytes)
@@ -107,7 +147,7 @@ def run_single_strategy(strategy: str, cert_path: Path) -> None:
 
 def install_certificate(cert_path: Path) -> None:
     errors: list[str] = []
-    for strategy in ("certmgr", "crypt32"):
+    for strategy in ("certmgr", "pwsh-import", "crypt32"):
         print(f"[INFO] Trying certificate import strategy: {strategy}", flush=True)
         try:
             returncode, stdout, stderr = run_strategy_subprocess(strategy, cert_path)
@@ -127,7 +167,7 @@ def install_certificate(cert_path: Path) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Import a certificate into the Windows current-user Root store.")
-    parser.add_argument("--strategy", choices=("certmgr", "crypt32"))
+    parser.add_argument("--strategy", choices=("certmgr", "pwsh-import", "crypt32"))
     parser.add_argument("certificate", help="Path to a DER or PEM encoded certificate file.")
     args = parser.parse_args(argv)
 

@@ -19,6 +19,8 @@ class WindowsCertInstallHelperTest(unittest.TestCase):
             "Windows Kits/10/bin",
             "--strategy",
             "Trying certificate import strategy",
+            "pwsh.exe",
+            "Import-Certificate -FilePath $env:MITM_CERT",
         ]:
             self.assertIn(token, text)
 
