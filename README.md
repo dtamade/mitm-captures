@@ -1,7 +1,13 @@
 # mitm-captures
 
+[![CI](https://github.com/dtamade/mitm-captures/actions/workflows/ci.yml/badge.svg)](https://github.com/dtamade/mitm-captures/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/dtamade/mitm-captures)](https://github.com/dtamade/mitm-captures/releases)
+[![License](https://img.shields.io/github/license/dtamade/mitm-captures)](https://github.com/dtamade/mitm-captures/blob/main/LICENSE)
+
 一组用于本地启动/停止 `mitmdump` 抓包并导出 HAR 的小脚本。
 支持 Linux/macOS 的 shell 入口，也支持 Windows 的单文件批处理入口 `mitm-captures.bat`。
+
+当前发布说明见 [CHANGELOG.md](CHANGELOG.md) 和 GitHub Releases。
 
 它解决三个问题：
 - 一键启动抓包并落盘 `flow`
