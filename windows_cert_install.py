@@ -42,7 +42,6 @@ def find_certmgr_executable() -> Path | None:
     if direct:
         return Path(direct)
 
-    candidates: list[Path] = []
     for root_name in ("ProgramFiles(x86)", "ProgramFiles"):
         root = os.environ.get(root_name)
         if not root:
@@ -53,10 +52,10 @@ def find_certmgr_executable() -> Path | None:
             "Windows Kits/10/bin/*/x86/certmgr.exe",
             "Windows Kits/10/bin/*/arm64/certmgr.exe",
         ):
-            candidates.extend(base.glob(pattern))
-    if not candidates:
-        return None
-    return sorted(candidates, reverse=True)[0]
+            matches = sorted(base.glob(pattern), reverse=True)
+            if matches:
+                return matches[0]
+    return None
 
 
 def install_with_certmgr(cert_path: Path) -> None:
@@ -64,6 +63,7 @@ def install_with_certmgr(cert_path: Path) -> None:
     if certmgr is None:
         raise RuntimeError("CertMgr.exe not found")
 
+    print(f"[INFO] Using CertMgr executable: {certmgr}", flush=True)
     completed = subprocess.run(
         [str(certmgr), "/add", str(cert_path), "/s", "/r", "currentUser", "root"],
         text=True,
