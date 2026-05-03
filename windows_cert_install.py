@@ -16,7 +16,9 @@ PKCS_7_ASN_ENCODING = 0x00010000
 CERT_STORE_PROV_SYSTEM_REGISTRY_W = 13
 CERT_SYSTEM_STORE_LOCATION_SHIFT = 16
 CERT_SYSTEM_STORE_CURRENT_USER_ID = 1
+CERT_SYSTEM_STORE_LOCAL_MACHINE_ID = 2
 CERT_SYSTEM_STORE_CURRENT_USER = CERT_SYSTEM_STORE_CURRENT_USER_ID << CERT_SYSTEM_STORE_LOCATION_SHIFT
+CERT_SYSTEM_STORE_LOCAL_MACHINE = CERT_SYSTEM_STORE_LOCAL_MACHINE_ID << CERT_SYSTEM_STORE_LOCATION_SHIFT
 CERT_SYSTEM_STORE_UNPROTECTED_FLAG = 0x40000000
 CERT_STORE_ADD_REPLACE_EXISTING = 3
 
@@ -29,7 +31,57 @@ def load_certificate_bytes(cert_path: Path) -> bytes:
     return raw
 
 
+def add_certificate_to_open_store(crypt32: ctypes.WinDLL, store: ctypes.c_void_p, cert_bytes: bytes) -> None:
+    cert_add = crypt32.CertAddEncodedCertificateToStore
+    cert_add.argtypes = [
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        ctypes.POINTER(ctypes.c_ubyte),
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.POINTER(ctypes.c_void_p),
+    ]
+    cert_add.restype = wintypes.BOOL
+
+    cert_buffer = (ctypes.c_ubyte * len(cert_bytes)).from_buffer_copy(cert_bytes)
+    cert_context = ctypes.c_void_p()
+    if not cert_add(
+        store,
+        X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
+        cert_buffer,
+        len(cert_bytes),
+        CERT_STORE_ADD_REPLACE_EXISTING,
+        ctypes.byref(cert_context),
+    ):
+        raise ctypes.WinError(ctypes.get_last_error())
+
+
 def add_certificate_to_current_user_root(cert_bytes: bytes) -> None:
+    if sys.platform != "win32":
+        raise RuntimeError("windows_cert_install.py can only run on Windows")
+    if not cert_bytes:
+        raise RuntimeError("certificate file is empty")
+
+    crypt32 = ctypes.WinDLL("crypt32", use_last_error=True)
+    cert_open_system_store = crypt32.CertOpenSystemStoreW
+    cert_open_system_store.argtypes = [wintypes.HANDLE, ctypes.c_wchar_p]
+    cert_open_system_store.restype = ctypes.c_void_p
+
+    cert_close_store = crypt32.CertCloseStore
+    cert_close_store.argtypes = [ctypes.c_void_p, wintypes.DWORD]
+    cert_close_store.restype = wintypes.BOOL
+
+    store = cert_open_system_store(None, "ROOT")
+    if not store:
+        raise ctypes.WinError(ctypes.get_last_error())
+
+    try:
+        add_certificate_to_open_store(crypt32, store, cert_bytes)
+    finally:
+        cert_close_store(store, 0)
+
+
+def add_certificate_to_current_user_root_unprotected(cert_bytes: bytes) -> None:
     if sys.platform != "win32":
         raise RuntimeError("windows_cert_install.py can only run on Windows")
     if not cert_bytes:
@@ -46,17 +98,6 @@ def add_certificate_to_current_user_root(cert_bytes: bytes) -> None:
     ]
     cert_open_store.restype = ctypes.c_void_p
 
-    cert_add = crypt32.CertAddEncodedCertificateToStore
-    cert_add.argtypes = [
-        ctypes.c_void_p,
-        wintypes.DWORD,
-        ctypes.POINTER(ctypes.c_ubyte),
-        wintypes.DWORD,
-        wintypes.DWORD,
-        ctypes.POINTER(ctypes.c_void_p),
-    ]
-    cert_add.restype = wintypes.BOOL
-
     cert_close_store = crypt32.CertCloseStore
     cert_close_store.argtypes = [ctypes.c_void_p, wintypes.DWORD]
     cert_close_store.restype = wintypes.BOOL
@@ -72,20 +113,55 @@ def add_certificate_to_current_user_root(cert_bytes: bytes) -> None:
     if not store:
         raise ctypes.WinError(ctypes.get_last_error())
 
-    cert_buffer = (ctypes.c_ubyte * len(cert_bytes)).from_buffer_copy(cert_bytes)
-    cert_context = ctypes.c_void_p()
     try:
-        if not cert_add(
-            store,
-            X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
-            cert_buffer,
-            len(cert_bytes),
-            CERT_STORE_ADD_REPLACE_EXISTING,
-            ctypes.byref(cert_context),
-        ):
-            raise ctypes.WinError(ctypes.get_last_error())
+        add_certificate_to_open_store(crypt32, store, cert_bytes)
     finally:
         cert_close_store(store, 0)
+
+
+def add_certificate_to_local_machine_root(cert_bytes: bytes) -> None:
+    if sys.platform != "win32":
+        raise RuntimeError("windows_cert_install.py can only run on Windows")
+    if not cert_bytes:
+        raise RuntimeError("certificate file is empty")
+
+    crypt32 = ctypes.WinDLL("crypt32", use_last_error=True)
+    cert_open_store = crypt32.CertOpenStore
+    cert_open_store.argtypes = [
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+    ]
+    cert_open_store.restype = ctypes.c_void_p
+
+    cert_close_store = crypt32.CertCloseStore
+    cert_close_store.argtypes = [ctypes.c_void_p, wintypes.DWORD]
+    cert_close_store.restype = wintypes.BOOL
+
+    store_name = ctypes.create_unicode_buffer("Root")
+    store = cert_open_store(
+        ctypes.c_void_p(CERT_STORE_PROV_SYSTEM_REGISTRY_W),
+        0,
+        None,
+        CERT_SYSTEM_STORE_LOCAL_MACHINE,
+        ctypes.cast(store_name, ctypes.c_void_p),
+    )
+    if not store:
+        raise ctypes.WinError(ctypes.get_last_error())
+
+    try:
+        add_certificate_to_open_store(crypt32, store, cert_bytes)
+    finally:
+        cert_close_store(store, 0)
+
+
+def is_process_elevated() -> bool:
+    if sys.platform != "win32":
+        return False
+    shell32 = ctypes.WinDLL("shell32", use_last_error=True)
+    return bool(shell32.IsUserAnAdmin())
 
 
 def find_certmgr_executable() -> Path | None:
@@ -135,6 +211,13 @@ def install_with_certmgr(cert_path: Path) -> None:
 
 def find_pwsh_executable() -> Path | None:
     direct = shutil.which("pwsh.exe") or shutil.which("pwsh")
+    if not direct:
+        return None
+    return Path(direct)
+
+
+def find_windows_powershell_executable() -> Path | None:
+    direct = shutil.which("powershell.exe") or shutil.which("powershell")
     if not direct:
         return None
     return Path(direct)
@@ -199,6 +282,40 @@ def install_with_pwsh_import(cert_path: Path) -> None:
         raise RuntimeError(f"pwsh Import-Certificate failed with exit code {completed.returncode}")
 
 
+def is_certificate_visible_in_current_user_root(cert_path: Path) -> bool:
+    powershell = find_windows_powershell_executable()
+    if powershell is None:
+        raise RuntimeError("powershell.exe not found for certificate visibility verification")
+
+    escaped_cert_path = str(cert_path).replace("'", "''")
+    script = (
+        f"$cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2('{escaped_cert_path}'); "
+        "$thumb = $cert.Thumbprint; "
+        "$store = New-Object System.Security.Cryptography.X509Certificates.X509Store('Root', 'CurrentUser'); "
+        "$store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadOnly); "
+        "try { "
+        "$matches = $store.Certificates.Find([System.Security.Cryptography.X509Certificates.X509FindType]::FindByThumbprint, $thumb, $false); "
+        "if ($matches.Count -gt 0) { [Console]::Out.Write('ok'); exit 0 } "
+        "exit 4 "
+        "} finally { $store.Close() }"
+    )
+    completed = subprocess.run(
+        [str(powershell), "-NoProfile", "-NonInteractive", "-Command", script],
+        text=True,
+        capture_output=True,
+        errors="replace",
+        timeout=DEFAULT_TIMEOUT_SECONDS,
+        check=False,
+    )
+    if completed.returncode == 0 and completed.stdout.strip() == "ok":
+        return True
+    if completed.returncode == 4:
+        return False
+    raise RuntimeError(
+        f"failed to verify CurrentUser Root visibility: {completed.stderr or completed.stdout or completed.returncode}"
+    )
+
+
 def run_strategy_subprocess(strategy: str, cert_path: Path) -> tuple[int, str, str]:
     completed = subprocess.run(
         [sys.executable, __file__, "--strategy", strategy, str(cert_path)],
@@ -212,12 +329,20 @@ def run_strategy_subprocess(strategy: str, cert_path: Path) -> tuple[int, str, s
 
 
 def run_single_strategy(strategy: str, cert_path: Path) -> None:
+    if strategy == "crypt32-current-user":
+        cert_bytes = load_certificate_bytes(cert_path)
+        add_certificate_to_current_user_root(cert_bytes)
+        return
+    if strategy == "crypt32-local-machine":
+        cert_bytes = load_certificate_bytes(cert_path)
+        add_certificate_to_local_machine_root(cert_bytes)
+        return
     if strategy == "certutil-user-addstore":
         install_with_certutil(cert_path)
         return
     if strategy == "crypt32-openstore":
         cert_bytes = load_certificate_bytes(cert_path)
-        add_certificate_to_current_user_root(cert_bytes)
+        add_certificate_to_current_user_root_unprotected(cert_bytes)
         return
     if strategy == "certmgr":
         install_with_certmgr(cert_path)
@@ -230,11 +355,16 @@ def run_single_strategy(strategy: str, cert_path: Path) -> None:
 
 def install_certificate(cert_path: Path) -> None:
     errors: list[str] = []
-    for strategy in ("certutil-user-addstore", "crypt32-openstore", "certmgr", "pwsh-import"):
+    strategies = ["crypt32-current-user"]
+    if is_process_elevated():
+        strategies.append("crypt32-local-machine")
+    strategies.extend(["certmgr", "pwsh-import", "certutil-user-addstore", "crypt32-openstore"])
+    for strategy in strategies:
         print(f"[INFO] Trying certificate import strategy: {strategy}", flush=True)
         try:
             returncode, stdout, stderr = run_strategy_subprocess(strategy, cert_path)
         except subprocess.TimeoutExpired:
+            print(f"[WARN] Certificate import strategy timed out: {strategy}", file=sys.stderr, flush=True)
             errors.append(f"{strategy}: timed out after {DEFAULT_TIMEOUT_SECONDS}s")
             continue
         if stdout:
@@ -242,6 +372,19 @@ def install_certificate(cert_path: Path) -> None:
         if stderr:
             print(stderr, end="", file=sys.stderr)
         if returncode == 0:
+            try:
+                visible = is_certificate_visible_in_current_user_root(cert_path)
+            except Exception as exc:
+                errors.append(f"{strategy}: visibility verification failed: {exc}")
+                continue
+            if not visible:
+                print(
+                    f"[WARN] Certificate import strategy completed but certificate is not visible in CurrentUser Root: {strategy}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                errors.append(f"{strategy}: certificate not visible in CurrentUser Root after import")
+                continue
             print(f"[INFO] Certificate import strategy succeeded: {strategy}", flush=True)
             return
         errors.append(f"{strategy}: exited with code {returncode}")
@@ -250,7 +393,17 @@ def install_certificate(cert_path: Path) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Import a certificate into the Windows current-user Root store.")
-    parser.add_argument("--strategy", choices=("certutil-user-addstore", "crypt32-openstore", "certmgr", "pwsh-import"))
+    parser.add_argument(
+        "--strategy",
+        choices=(
+            "crypt32-current-user",
+            "crypt32-local-machine",
+            "certutil-user-addstore",
+            "crypt32-openstore",
+            "certmgr",
+            "pwsh-import",
+        ),
+    )
     parser.add_argument("certificate", help="Path to a DER or PEM encoded certificate file.")
     args = parser.parse_args(argv)
 
@@ -268,7 +421,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[ERROR] Failed to import certificate: {exc}", file=sys.stderr)
         return 1
 
-    print(f"[OK] Imported certificate into CurrentUser Root: {cert_path}")
+    print(f"[OK] Certificate is visible in CurrentUser Root: {cert_path}")
     return 0
 
 

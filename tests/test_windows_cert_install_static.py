@@ -11,8 +11,10 @@ class WindowsCertInstallHelperTest(unittest.TestCase):
         text = HELPER.read_text(encoding="utf-8")
 
         for token in [
+            "CertOpenSystemStoreW",
             "CertOpenStore",
             "CertAddEncodedCertificateToStore",
+            "CERT_SYSTEM_STORE_LOCAL_MACHINE",
             "CERT_SYSTEM_STORE_UNPROTECTED_FLAG",
             "CERT_STORE_PROV_SYSTEM_REGISTRY_W",
             "CERT_STORE_ADD_REPLACE_EXISTING",
@@ -21,10 +23,14 @@ class WindowsCertInstallHelperTest(unittest.TestCase):
             "certutil.exe",
             '"-f", "-user", "-addstore", "Root"',
             "certutil-user-addstore",
+            "crypt32-current-user",
+            "crypt32-local-machine",
             "CertMgr.exe",
             "Windows Kits/10/bin",
             "--strategy",
             "Trying certificate import strategy",
+            "powershell.exe",
+            "FindByThumbprint",
             "pwsh.exe",
             "Import-Certificate -FilePath $env:MITM_CERT",
         ]:
