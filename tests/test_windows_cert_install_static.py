@@ -19,7 +19,8 @@ class WindowsCertInstallHelperTest(unittest.TestCase):
             "ssl.PEM_cert_to_DER_cert",
             'sys.platform != "win32"',
             "certutil.exe",
-            '-silent", "-addstore", "Root"',
+            '"-f", "-user", "-addstore", "Root"',
+            "certutil-user-addstore",
             "CertMgr.exe",
             "Windows Kits/10/bin",
             "--strategy",
@@ -28,6 +29,7 @@ class WindowsCertInstallHelperTest(unittest.TestCase):
             "Import-Certificate -FilePath $env:MITM_CERT",
         ]:
             self.assertIn(token, text)
+        self.assertNotIn('"-silent"', text)
 
 
 if __name__ == "__main__":

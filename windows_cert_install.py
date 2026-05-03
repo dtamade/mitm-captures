@@ -154,7 +154,7 @@ def install_with_certutil(cert_path: Path) -> None:
 
     print(f"[INFO] Using certutil executable: {certutil}", flush=True)
     completed = subprocess.run(
-        [str(certutil), "-f", "-user", "-silent", "-addstore", "Root", str(cert_path)],
+        [str(certutil), "-f", "-user", "-addstore", "Root", str(cert_path)],
         text=True,
         capture_output=True,
         errors="replace",
@@ -212,7 +212,7 @@ def run_strategy_subprocess(strategy: str, cert_path: Path) -> tuple[int, str, s
 
 
 def run_single_strategy(strategy: str, cert_path: Path) -> None:
-    if strategy == "certutil-silent":
+    if strategy == "certutil-user-addstore":
         install_with_certutil(cert_path)
         return
     if strategy == "crypt32-openstore":
@@ -230,7 +230,7 @@ def run_single_strategy(strategy: str, cert_path: Path) -> None:
 
 def install_certificate(cert_path: Path) -> None:
     errors: list[str] = []
-    for strategy in ("certutil-silent", "crypt32-openstore", "certmgr", "pwsh-import"):
+    for strategy in ("certutil-user-addstore", "crypt32-openstore", "certmgr", "pwsh-import"):
         print(f"[INFO] Trying certificate import strategy: {strategy}", flush=True)
         try:
             returncode, stdout, stderr = run_strategy_subprocess(strategy, cert_path)
@@ -250,7 +250,7 @@ def install_certificate(cert_path: Path) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Import a certificate into the Windows current-user Root store.")
-    parser.add_argument("--strategy", choices=("certutil-silent", "crypt32-openstore", "certmgr", "pwsh-import"))
+    parser.add_argument("--strategy", choices=("certutil-user-addstore", "crypt32-openstore", "certmgr", "pwsh-import"))
     parser.add_argument("certificate", help="Path to a DER or PEM encoded certificate file.")
     args = parser.parse_args(argv)
 
