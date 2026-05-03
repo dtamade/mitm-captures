@@ -99,7 +99,7 @@ class WindowsBatchEntrypointTest(unittest.TestCase):
         cert_section = section_between(text, ":cmd_cert", ":run_with_capture_lock")
 
         self.assertIn(
-            "powershell -noprofile -command \"$erroractionpreference = 'stop'; import-module microsoft.powershell.security; import-certificate -filepath $env:mitm_cert -certstorelocation 'microsoft.powershell.security\\certificate::currentuser\\root' | out-null\"",
+            "powershell -noprofile -command \"$erroractionpreference = 'stop'; import-certificate -filepath $env:mitm_cert -certstorelocation 'microsoft.powershell.security\\certificate::currentuser\\root' | out-null\"",
             cert_section,
         )
         self.assertNotIn('certutil -user -addstore root "%mitm_cert%"', cert_section)
