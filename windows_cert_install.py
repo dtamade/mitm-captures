@@ -38,9 +38,11 @@ def add_certificate_to_current_user_root(cert_bytes: bytes) -> None:
 
 
 def find_certmgr_executable() -> Path | None:
-    direct = shutil.which("certmgr.exe") or shutil.which("certmgr")
+    direct = shutil.which("certmgr.exe")
     if direct:
-        return Path(direct)
+        candidate = Path(direct)
+        if candidate.suffix.lower() == ".exe":
+            return candidate
 
     for root_name in ("ProgramFiles(x86)", "ProgramFiles"):
         root = os.environ.get(root_name)
