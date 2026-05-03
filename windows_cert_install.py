@@ -140,6 +140,35 @@ def find_pwsh_executable() -> Path | None:
     return Path(direct)
 
 
+def find_certutil_executable() -> Path | None:
+    direct = shutil.which("certutil.exe") or shutil.which("certutil")
+    if not direct:
+        return None
+    return Path(direct)
+
+
+def install_with_certutil(cert_path: Path) -> None:
+    certutil = find_certutil_executable()
+    if certutil is None:
+        raise RuntimeError("certutil.exe not found")
+
+    print(f"[INFO] Using certutil executable: {certutil}", flush=True)
+    completed = subprocess.run(
+        [str(certutil), "-f", "-user", "-silent", "-addstore", "Root", str(cert_path)],
+        text=True,
+        capture_output=True,
+        errors="replace",
+        timeout=DEFAULT_TIMEOUT_SECONDS,
+        check=False,
+    )
+    if completed.stdout:
+        print(completed.stdout, end="")
+    if completed.stderr:
+        print(completed.stderr, end="", file=sys.stderr)
+    if completed.returncode != 0:
+        raise RuntimeError(f"certutil addstore failed with exit code {completed.returncode}")
+
+
 def install_with_pwsh_import(cert_path: Path) -> None:
     pwsh = find_pwsh_executable()
     if pwsh is None:
@@ -183,6 +212,9 @@ def run_strategy_subprocess(strategy: str, cert_path: Path) -> tuple[int, str, s
 
 
 def run_single_strategy(strategy: str, cert_path: Path) -> None:
+    if strategy == "certutil-silent":
+        install_with_certutil(cert_path)
+        return
     if strategy == "crypt32-openstore":
         cert_bytes = load_certificate_bytes(cert_path)
         add_certificate_to_current_user_root(cert_bytes)
@@ -198,7 +230,7 @@ def run_single_strategy(strategy: str, cert_path: Path) -> None:
 
 def install_certificate(cert_path: Path) -> None:
     errors: list[str] = []
-    for strategy in ("crypt32-openstore", "certmgr", "pwsh-import"):
+    for strategy in ("certutil-silent", "crypt32-openstore", "certmgr", "pwsh-import"):
         print(f"[INFO] Trying certificate import strategy: {strategy}", flush=True)
         try:
             returncode, stdout, stderr = run_strategy_subprocess(strategy, cert_path)
@@ -218,7 +250,7 @@ def install_certificate(cert_path: Path) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Import a certificate into the Windows current-user Root store.")
-    parser.add_argument("--strategy", choices=("crypt32-openstore", "certmgr", "pwsh-import"))
+    parser.add_argument("--strategy", choices=("certutil-silent", "crypt32-openstore", "certmgr", "pwsh-import"))
     parser.add_argument("certificate", help="Path to a DER or PEM encoded certificate file.")
     args = parser.parse_args(argv)
 

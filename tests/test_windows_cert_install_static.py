@@ -18,6 +18,8 @@ class WindowsCertInstallHelperTest(unittest.TestCase):
             "CERT_STORE_ADD_REPLACE_EXISTING",
             "ssl.PEM_cert_to_DER_cert",
             'sys.platform != "win32"',
+            "certutil.exe",
+            '-silent", "-addstore", "Root"',
             "CertMgr.exe",
             "Windows Kits/10/bin",
             "--strategy",
