@@ -530,7 +530,7 @@ if not exist "%MITM_CERT%" (
     >&2 echo [ERROR] mitmproxy certificate not found: %MITM_CERT%
     exit /b 1
 )
-powershell -NoProfile -Command "$ErrorActionPreference = 'Stop'; Import-Certificate -FilePath $env:MITM_CERT -CertStoreLocation 'Cert:\CurrentUser\Root' | Out-Null"
+powershell -NoProfile -Command "$ErrorActionPreference = 'Stop'; $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($env:MITM_CERT); $store = New-Object System.Security.Cryptography.X509Certificates.X509Store('Root', 'CurrentUser'); $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite); $store.Add($cert); $store.Close()"
 if errorlevel 1 exit /b 1
 echo [OK] mitmproxy CA certificate installed for the current user.
 exit /b 0

@@ -99,7 +99,7 @@ class WindowsBatchEntrypointTest(unittest.TestCase):
         cert_section = section_between(text, ":cmd_cert", ":run_with_capture_lock")
 
         self.assertIn(
-            "powershell -noprofile -command \"$erroractionpreference = 'stop'; import-certificate -filepath $env:mitm_cert -certstorelocation 'cert:\\currentuser\\root' | out-null\"",
+            "powershell -noprofile -command \"$erroractionpreference = 'stop'; $cert = new-object system.security.cryptography.x509certificates.x509certificate2($env:mitm_cert); $store = new-object system.security.cryptography.x509certificates.x509store('root', 'currentuser'); $store.open([system.security.cryptography.x509certificates.openflags]::readwrite); $store.add($cert); $store.close()\"",
             cert_section,
         )
         self.assertNotIn('certutil -user -addstore root "%mitm_cert%"', cert_section)
