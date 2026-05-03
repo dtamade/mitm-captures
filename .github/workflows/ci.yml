@@ -64,6 +64,7 @@ jobs:
           python -m py_compile flow_report.py
           python -m py_compile ai_brief.py
           python -m py_compile state_import.py
+          python -m py_compile windows_cert_install.py
           python -m py_compile tests/runtime_smoke.py
 
       - name: Run static test suite

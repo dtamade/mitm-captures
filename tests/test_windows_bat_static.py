@@ -98,11 +98,9 @@ class WindowsBatchEntrypointTest(unittest.TestCase):
         text = BAT.read_text(encoding="utf-8").lower()
         cert_section = section_between(text, ":cmd_cert", ":run_with_capture_lock")
 
-        self.assertIn(
-            "powershell -noprofile -command \"$erroractionpreference = 'stop'; import-certificate -filepath $env:mitm_cert -certstorelocation 'certificate::currentuser\\root' | out-null\"",
-            cert_section,
-        )
+        self.assertIn('"%python_cmd%" "%script_dir%\\windows_cert_install.py" "%mitm_cert%"', cert_section)
         self.assertNotIn('certutil -user -addstore root "%mitm_cert%"', cert_section)
+        self.assertNotIn("import-certificate", cert_section)
 
     def test_batch_entrypoint_validates_target_dir_and_serializes_capture_commands(self):
         text = BAT.read_text(encoding="utf-8").lower()

@@ -532,7 +532,7 @@ if not exist "%MITM_CERT%" (
     exit /b 1
 )
 echo [INFO] Importing mitmproxy CA certificate into CurrentUser Root...
-powershell -NoProfile -Command "$ErrorActionPreference = 'Stop'; Import-Certificate -FilePath $env:MITM_CERT -CertStoreLocation 'Certificate::CurrentUser\Root' | Out-Null"
+"%PYTHON_CMD%" "%SCRIPT_DIR%\windows_cert_install.py" "%MITM_CERT%"
 if errorlevel 1 exit /b 1
 echo [OK] mitmproxy CA certificate installed for the current user.
 exit /b 0
