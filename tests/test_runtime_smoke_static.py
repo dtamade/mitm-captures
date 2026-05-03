@@ -61,3 +61,12 @@ class RuntimeSmokeStaticTest(unittest.TestCase):
             self.assertIn('gsettings set org.gnome.system.proxy.https host "$https_host"', section)
             self.assertIn('gsettings set org.gnome.system.proxy.https port "$https_port"', section)
             self.assertNotIn('if [[ "$effective_mode" == "manual" ]]', section)
+
+    def test_windows_cert_visibility_check_uses_thumbprint_match_not_certutil_text(self):
+        text = SMOKE.read_text(encoding="utf-8")
+        cert_section = text.split("def assert_windows_cert_installed() -> None:", 1)[1].split("\ndef announce_step(", 1)[0]
+
+        self.assertIn("X509FindType]::FindByThumbprint", cert_section)
+        self.assertIn("$matches.Count -gt 0", cert_section)
+        self.assertNotIn("certutil -user -store Root", cert_section)
+        self.assertNotIn('"mitmproxy" not in completed.stdout.lower()', cert_section)

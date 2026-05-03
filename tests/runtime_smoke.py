@@ -372,17 +372,25 @@ def assert_windows_cert_installed() -> None:
     if not cert_path.exists():
         raise AssertionError(f"mitmproxy CA certificate file was not created: {cert_path}")
 
-    completed = subprocess.run(
-        ["certutil", "-user", "-store", "Root"],
-        text=True,
-        capture_output=True,
-        errors="replace",
-        check=False,
+    escaped_cert_path = str(cert_path).replace("'", "''")
+    script = (
+        f"$cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2('{escaped_cert_path}'); "
+        "$thumb = $cert.Thumbprint; "
+        "$store = New-Object System.Security.Cryptography.X509Certificates.X509Store('Root', 'CurrentUser'); "
+        "$store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadOnly); "
+        "try { "
+        "$matches = $store.Certificates.Find([System.Security.Cryptography.X509Certificates.X509FindType]::FindByThumbprint, $thumb, $false); "
+        "if ($matches.Count -gt 0) { [Console]::Out.Write('ok'); exit 0 } "
+        "exit 4 "
+        "} finally { $store.Close() }"
     )
-    if completed.returncode != 0:
-        raise AssertionError(f"certutil -user -store Root failed: {completed.stderr or completed.stdout}")
-    if "mitmproxy" not in completed.stdout.lower():
-        raise AssertionError("mitmproxy certificate was not visible in the current user Root store")
+    completed = run_powershell(script)
+    if completed.returncode == 0 and completed.stdout.strip() == "ok":
+        return
+    raise AssertionError(
+        "mitmproxy certificate was not visible in the current user Root store: "
+        f"{completed.stderr or completed.stdout}"
+    )
 
 
 def announce_step(step: str) -> None:
